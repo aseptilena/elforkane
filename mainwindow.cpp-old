@@ -1,0 +1,3423 @@
+/****************************************************************************
+//   elforkane Copyright (C) 2012 yahia nouah <yahiaui@gmail.com>
+//
+//      This program comes with ABSOLUTELY NO WARRANTY; for details type `show w'.
+//      This is free software, and you are welcome to redistribute it
+//      under certain conditions; type `show c' for details.
+//
+//  The hypothetical commands `show w' and `show c' should show the appropriate
+//  parts of the General Public License.  Of course, your program's commands
+//  might be different; for a GUI interface, you would use an "about box".
+//
+//    You should also get your employer (if you work as a programmer) or school,
+//  if any, to sign a "copyright disclaimer" for the program, if necessary.
+//  For more information on this, and how to apply and follow the GNU GPL, see
+//  <http://www.gnu.org/licenses/>.
+//
+//    The GNU General Public License does not permit incorporating your program
+//  into proprietary programs.  If your program is a subroutine library, you
+//  may consider it more useful to permit linking proprietary applications with
+//  the library.  If this is what you want to do, use the GNU Lesser General
+//  Public License instead of this License.  But first, please read
+//  <http://www.gnu.org/philosophy/why-not-lgpl.html>.
+// ----------------------------------------------------------
+** If you have questions regarding the use of this file, please contact
+** yahia nouah (yahiaui@gmail.com)
+** $elforkane_END_LICENSE$
+**
+****************************************************************************/
+#include "mainwindow.h"
+#include "ui_mainwindow.h"
+//#include <stdlib.h>
+#include <QtGui>
+#include <QDebug>
+#include "dialogaddreciter.h"
+#include "dialogoption.h"
+#include "dialogabout.h"
+MainWindow::MainWindow(QWidget *parent) :
+    QMainWindow(parent),
+    ui(new Ui::MainWindow)
+{
+
+    ui->setupUi(this);
+
+//scenfull=new ScenFull;
+    database=new Database();
+    sceenbase=new Sceenbase();
+    connect(sceenbase, SIGNAL(setPos(int)), this, SLOT(setCurentPos(int)));
+    QApplication::setLayoutDirection(Qt::RightToLeft);
+    //تحديد مكان بيانات البرنامج حسب نوع النظام
+    QDir appDir(qApp->applicationDirPath());
+#if defined(Q_OS_WIN)
+    appDir.cdUp();
+       m_appPath=  appDir.absolutePath()+"/share/elforkane";
+#elif defined(Q_OS_MAC)
+    if (appDir.dirName() == "MacOS") {
+        appDir.cdUp();
+        appDir.cdUp();
+        appDir.cdUp();
+        m_appPath=  appDir.absolutePath()+"/elforkane";
+
+    }
+#else
+    appDir.cdUp();
+    m_appPath=  appDir.absolutePath()+"/share/elforkane";
+#endif
+    sceenbase->setAppPath(m_appPath);
+  //  qDebug()<< " application path ="+m_appPath;
+    //تحميل الاعدادات الافتراضية للمتغيرات
+  m_curentSafhaRight=1;   m_curentSafhaLeft=2;
+    m_repeatNumber=2;
+    m_isRepeatNumber=false;
+    m_layouDir=trUtf8("ltr","layou direction for this language ex:rtl for arabic");
+    m_y="40";
+    m_difer=0;
+    m_bLeft=false;
+    m_bRight=false;
+    m_px=457;
+    m_numPlayed=1;
+    m_pHieght=672;
+    m_pWith=456;
+    m_soundPath="audio/Husary_Mujawwad_64kbps";
+    m_autoRepeatPage=false;
+    m_autoRepeatOne=false;
+    m_autoRepeatSura=false;
+    m_autoRepeatFromTo=false;
+    m_autoPlayNext=true;
+    isPlay=false;
+    emit popupVisible(false);
+    //التحميلات والاعدادات
+    loadSetting();   //تحميل ااعدادات المستخدم
+    setupToolbarIcons();//انشاء الادوات والايقونات
+ //   qDebug()<<"setupToolbarIcons";
+    locateThemePath();//تحديد سمة الصفحات
+ //  qDebug()<<" locatedThemePath";
+    creatPagesAndPopup();//انشاء الصفحات ونافذة التفاسير
+
+    // creatNavigation();
+    if(m_showMediaControl==false)
+        creatMediaControles();//انشاء نافذة الوسائط
+
+    createTrayIcon();//انشاء ايقونة صينية النظام
+    trayIcon->setVisible(m_minimizToTry);
+    //تحميل البيانات
+
+    database->chargeCsvs(m_curentRiwaya);
+    database->treeChargeJozaa(ui->treeWidgetIndex);
+    database->treeChargeSoura(ui->treeWidgetIndex,false,comboSura,m_layouDir,m_sura-1);
+
+    chargeDataTools();    // تحميل  التراجم التفاسير بيانات المقرئين
+    comboBoxReciter->setCurrentIndex(m_receter);
+    newPages();//الانتقال الى صفحة جديدة
+    //تحديد مسار الصوت الاخير
+    QString txt=comboBoxReciter-> itemData(m_receter).toString();
+    m_soundPath=txt.section("|",0,0);
+    m_soundUrl=txt.section("|",1,1);
+  //  QRegExp aodo(m_appPath+"/audhubillah.*");
+   //البحث عن اي ملف استعاذة باي ملحقة كانت
+    QStringList filters("audhubillah.*");
+            QDir dir(m_appPath);
+QStringList list=dir.entryList(filters,QDir::Files,QDir::Name);
+QString aodho ;
+  if (list.count()>0)
+   aodho = list.at(0);
+    m_MediaObject.setCurrentSource(m_appPath+"/"+aodho);
+    m_MediaObject.play();
+    m_plaOne=true;
+    //الانتقال الى الموضع المحدد
+    setCurentPos(m_id);
+
+    //-------تحميل الاضافات لملأ الشاشة
+       loadPlugin();
+    //-----phonone effect----
+    chargeAvailableAudioEffects();
+
+    ui->toolBar->setVisible(m_standardTool);
+sceenbase->setwinLocal(this->locale());
+    this->resize(920,700);
+}
+
+   MainWindow::~MainWindow()
+{
+    QFile fileReciter(QDir::homePath()+"/.elforkane/reciterInfo");
+    if (!fileReciter.open(QFile::WriteOnly)){
+          return ;
+      }
+    QTextStream out(&fileReciter);
+    out.setCodec(QTextCodec::codecForName("UTF-8"));
+    for (int i=0;i<comboBoxReciter->count();i++){
+         QString txtName=comboBoxReciter->itemText(i);
+         QVariant txtData=comboBoxReciter->itemData(i);
+
+        out << txtName+","+txtData.toString()+"\n";
+    }
+    fileReciter.close();
+    saveSetting();
+      if(myListSceen.count()>0)
+    sceenFullInterface->~SceenFullInterface();
+        delete ui;
+     delete database;
+}
+   void MainWindow::closeEvent(QCloseEvent )
+   {
+      m_MediaObject.stop();
+   }
+
+   void MainWindow::setupToolbarIcons()
+   {
+
+       ui->lineEditSearchTree->installEventFilter(this);
+       ui->lineEditSearchTree->setText(trUtf8("Search"));
+       ui->lineEditSearchTree->setStyleSheet("QLineEdit {font: italic;color: rgb(115, 115, 115);}");
+       ui->dockWidget->setVisible(false);
+       ui-> treeWidgetIndex->setColumnHidden(1,true);
+       ui->treeWidgetSearch->setColumnHidden(3,true);
+       ui->treeWidgetSearch->setColumnWidth(0,50);
+       ui->treeWidgetSearch->setColumnWidth(1,30);
+       ui->treeWidgetSearch->setColumnWidth(2,300);
+
+       ui->actionEnableAnimFull->setChecked(m_fullAnimEnable);
+   ui->actionAbout->setIcon(QIcon::fromTheme("stock_about",QIcon(style()->standardPixmap(QStyle::SP_DialogHelpButton))));
+       //------------اضافة ادوات الى المشهد حتى تعمل الاختصارات عند عدم ظهور القوائم
+
+   ui->graphicsView->setBackgroundBrush(QPixmap(":/img/tawhid.png"));
+   ui->graphicsView->addAction(ui->actionFullScreen);
+       ui->graphicsView->addAction(ui->actionNextAya);
+       ui->graphicsView->addAction(ui->actionPrevAya);
+       ui->graphicsView->addAction(ui->actionPlayPause);
+       ui->graphicsView->addAction(ui->actionNextSura);
+       ui->graphicsView->addAction(ui->actionPrevSura);
+       ui->graphicsView->addAction(ui->actionNextPage);
+       ui->graphicsView->addAction(ui->actionPrevPage);
+       ui->graphicsView->addAction(ui->actionEnableAnimFull);
+
+
+       //---------toolbox style---------------------------------
+       int mred= this->palette().color(QPalette::Dark).red();
+       int mgreen= this->palette().color(QPalette::Dark).green();
+       int mblue= this->palette().color(QPalette::Dark).blue();
+       QString stylbox=QString("QToolBox::tab {"
+                               "background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:0, y2:1, stop:0 rgba(%1, %2, %3, 100), stop:1 rgba(255, 255, 255, 80));"
+                               "border-radius: 5px;}"
+                               "QToolBox::tab:hover { "
+                               "background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:0, y2:1, stop:0 rgba(255, 255, 255, 80), stop:1 rgba(%1, %2, %3, 200));"
+                               "font: italic;  }"
+                               "QToolBox::tab:selected { "
+                               "background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:0, y2:1, stop:0 rgba(%1, %2, %3, 250), stop:1 rgba(255, 255, 255, 0));"
+                               "}").arg(QString::number(mred)).arg(QString::number(mgreen)).arg(QString::number(mblue)) ;
+
+       ui->toolBox->setStyleSheet(stylbox);
+       ui->toolBox->setCurrentIndex(1);
+
+       if(m_textIcon==true){
+           ui->toolBar->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+       }else{
+           ui->toolBar->setToolButtonStyle(Qt::ToolButtonIconOnly);
+       }
+       connect(ui->comboBoxSoraJozaa, SIGNAL(currentIndexChanged(int)), this, SLOT(comboBoxSoraJozaa_currentIndexChanged(int)));
+       connect(ui->treeWidgetIndex, SIGNAL(itemActivated(QTreeWidgetItem*,int)), this, SLOT(treeWidgetIndex_itemActivated(QTreeWidgetItem*,int)));
+       connect(ui->lineEditSearchTree, SIGNAL(textChanged(QString)), this, SLOT(lineEditSearchTree_textChanged(QString)));
+       connect(ui->dockWidget, SIGNAL(visibilityChanged(bool)), ui->actionNavigation, SLOT(setChecked(bool)));
+       ui->menuView->addAction(ui->toolBar->toggleViewAction());
+       ui->menuView->addAction(ui->toolBarAodioEffect->toggleViewAction());
+       //ui->dockWidget->toggleViewAction()->setShortcut(QKeySequence(tr("Ctrl+L")));
+       ui->toolBar->toggleViewAction()->setShortcut(QKeySequence(tr("Ctrl+M")));
+ui->toolBarAodioEffect->toggleViewAction()->setShortcut(QKeySequence(tr("Ctrl+E")));
+       // connect(ui->toolBar, SIGNAL(visibilityChanged(bool)), ui->menuBar, SLOT(setHidden(bool)));
+       //----------------Phonon--------------------------------------------------------
+       connect(&m_MediaObject, SIGNAL(stateChanged(Phonon::State,Phonon::State)), this, SLOT(stateChanged(Phonon::State,Phonon::State)));
+       connect(&m_MediaObject, SIGNAL(finished()), this, SLOT(mediaFinished()));
+ m_audioOutputPath = Phonon::createPath(&m_MediaObject, &m_AudioOutput);
+       Phonon::createPath(&m_MediaObject, &m_AudioOutput);
+       //-----AudioEffect-----------------
+       audioEffectsCombo=new QComboBox(this);
+       effectAction=new QAction(QIcon(":/img/system-run.png"),trUtf8("Configure effect"), this);
+       ui->toolBarAodioEffect->addWidget(audioEffectsCombo);
+        ui->toolBarAodioEffect->addAction(effectAction)  ;
+        effectAction->setEnabled(false);
+ ui->toolBarAodioEffect->setVisible(false);
+       //-------------End--Phonon----------------------------------------------------
+
+
+       //---------------setup actions
+       // QLabel *labSafha=new QLabel(trUtf8("Safha"),this);
+       spinSafha=new QSpinBox(this);
+       connect(spinSafha, SIGNAL(editingFinished()), this, SLOT(goPage()));
+
+       comboSura=new QComboBox(this);
+       connect(comboSura, SIGNAL(activated(int)), this, SLOT(goSura(int )));
+       connect(comboSura, SIGNAL(currentIndexChanged(int)), this, SLOT(setSpinAyaMaximum(int)));
+       //  QLabel *labAya=new QLabel(trUtf8("Aya"),this);
+       spinAya=new  QSpinBox(this);
+       connect(spinAya, SIGNAL(editingFinished()), this, SLOT(goAya()));
+       // QLabel *labJozaa=new QLabel(trUtf8("Jozaa"),this);
+       spinJozaa=new  QSpinBox(this);
+       connect(spinJozaa, SIGNAL(editingFinished()), this, SLOT(goJozaa()));
+       // QLabel *labHizb=new QLabel(trUtf8("Hizb"),this);
+       spinHizb=new  QSpinBox(this);
+       connect(spinHizb, SIGNAL(editingFinished()), this, SLOT(goHizb()));
+       spinAya->setMinimum(1);
+       spinJozaa->setMinimum(1);
+       spinHizb->setMinimum(1);
+       spinSafha->setMinimum(1);
+       spinJozaa->setMaximum(30);
+       spinHizb->setMaximum(60);
+       spinSafha->setMaximum(604);
+
+       // ui->toolBar->addAction(ui->dockWidget->toggleViewAction());
+       ui->toolBar->addAction(ui->actionOptions);
+       ui->toolBar->addAction(ui->actionNavigation);
+       ui->toolBar->addAction(ui->actionRepeatOption);
+       ui->toolBar->addAction(ui->actionFullScreen);
+       actTansTefsir=new QAction(QIcon(":/img/tefsir.png"),trUtf8("Translation and Tefsir"),this);
+       actTansTefsir->setCheckable(true);
+
+
+       connect(actTansTefsir, SIGNAL(toggled(bool)), this, SLOT(popup_toggled(bool)));
+       connect(this, SIGNAL(popupVisible(bool)), actTansTefsir, SLOT(setChecked(bool)));
+
+    //   ui->toolBar->addAction(actTansTefsir);
+       actTansTefsir->setMenu(ui->menuTransTefsir);
+       ui->toolBar->addSeparator();
+       //------------------1--------------------
+       // ui->toolBar->addAction(ui->actionPrevPage);
+       ui->toolBar->addWidget(new QLabel(trUtf8("Page"),this)) ;
+       ui->toolBar->addWidget(spinSafha);
+       // ui->toolBar->addAction(ui->actionNextPage);
+       ui->toolBar->addSeparator();
+       //----------------2-----------------------
+       //  ui->toolBar->addAction(ui->actionPrevSura);
+       ui->toolBar->addWidget(comboSura);
+       //   ui->toolBar->addAction(ui->actionNextSura);
+
+       //---------------3-----------------------
+       // ui->toolBar->addAction(ui->actionPrevAya);
+       ui->toolBar->addWidget(new QLabel(trUtf8("Aya"),this));
+       ui->toolBar->addWidget(spinAya);
+       // ui->toolBar->addAction(ui->actionNextAya);
+
+       //---------------4--------------------------
+       ui->toolBar->addWidget(new QLabel(trUtf8("Jozaa"),this)) ;
+       ui->toolBar->addWidget(spinJozaa);
+       ui->toolBar->addWidget(new QLabel(trUtf8("Hizb"),this));
+       ui->toolBar->addWidget(spinHizb);
+       ui->toolBar->addSeparator();
+       //-------phonon---------------
+       slider = new Phonon::SeekSlider(this);
+    //   slider->setMaximumWidth(150);
+       slider->setMediaObject(&m_MediaObject);
+       volume = new Phonon::VolumeSlider(&m_AudioOutput);
+       volume->setMaximumWidth(100);
+       if(m_showMediaControl==true){
+           ui->toolBar->addWidget(slider);
+           ui->toolBar->addAction(ui->actionPlayPause);
+           ui->toolBar->addAction(ui->actionStopMedia);
+           ui->toolBar->addWidget(volume);
+       }
+       //-------end phonon---------------
+       //--------------------------------
+       comboBoxReciter = new QComboBox(this);
+       comboBoxReciter->setMaximumWidth(150);
+       ui->toolBar->addWidget(comboBoxReciter);
+       QMenu *menu=new QMenu(this);
+       menu->addAction(ui->actionAddReceter);
+       menu->addAction(ui->actionEditeReceter);
+       menu->addAction(ui->actionRemoveReceter);
+       ui->actionRceterEdite->setMenu(menu);
+       ui->toolBar->addAction(ui->actionRceterEdite);
+       connect(comboBoxReciter, SIGNAL(activated(int)), this, SLOT(comboBoxResiter_activated(int)));
+       //--------------------------------
+       QWidget *widget=new QWidget;
+       QHBoxLayout *horizontalLayoutTool = new QHBoxLayout(widget);
+       QSpacerItem *horizontalSpacer=new QSpacerItem(10, 10, QSizePolicy::Expanding, QSizePolicy::Minimum);
+       horizontalLayoutTool->addItem(horizontalSpacer);
+       ui->toolBar->addWidget(widget);
+
+
+           btnMenu=new QToolButton ;
+           btnMenu->setIcon(QIcon(":/img/system-run.png"));
+           btnMenu->setToolTip(trUtf8("menu"));
+           //btnMenu->setFlat(true);
+           btnMenu->setPopupMode(QToolButton::InstantPopup);
+
+           QMenu *menuBar=new QMenu;
+           menuBar->addMenu(ui->menuFile);
+           menuBar->addMenu(ui->menu_edit);
+           menuBar->addMenu(ui->menuView);
+           menuBar->addMenu(ui->menuHelp);
+           btnMenu->setMenu(menuBar);
+          ui->menuBar->setVisible(m_showMenu);
+           btnMenu->setVisible(!m_showMenu);
+           if(m_showMenu==false){
+               ui->toolBar->addWidget(btnMenu);
+           }else{
+               btnMenu->setParent(this);
+           }
+     ui->toolBar->addAction(ui->actionDlg);
+
+       //------------------------------------
+       panelMedia=new  QGraphicsWidget;
+       QPixmap pixmy(54,24);
+       pixmy.fill(Qt::transparent);
+       btnMedia=new Pixmap(pixmy,panelMedia);
+
+       playIcon=QIcon(":/img/media-playback-start.png");
+       pauseIcon=QIcon(":/img/media-playback-pause.png");
+       ui->actionPlayPause->setIcon(playIcon);
+       //ui->dockWidget->toggleViewAction()->setIcon(QIcon(":/img/document-properties.png"));
+       actMediaSafha=new QAction("S 5",this);
+       actMediaSafha->setObjectName("actMediaSafha");
+       connect(actMediaSafha, SIGNAL(triggered()), this, SLOT(actMediaExec()));
+
+       actMediaSura=new QAction("elbakara",this);
+       actMediaSura->setObjectName("actMediaSura");
+       connect(actMediaSura, SIGNAL(triggered()), this, SLOT(comboMediaExec()));
+
+       actMediaAya=new QAction("A 150",this);
+       actMediaAya->setObjectName("actMediaAya");
+       connect(actMediaAya, SIGNAL(triggered()), this, SLOT(actMediaExec()));
+
+       actMediaJozaa=new QAction("J 40",this);
+       actMediaJozaa->setObjectName("actMediaJozaa");
+       connect(actMediaJozaa, SIGNAL(triggered()), this, SLOT(actMediaExec()));
+
+       actMediaHizb=new QAction("H 40",this);
+       actMediaHizb->setObjectName("actMediaHizb");
+       connect(actMediaHizb, SIGNAL(triggered()), this, SLOT(actMediaExec()));
+
+       actMediaReciter=new QAction("yassin eljazairi",this);
+       actMediaReciter->setObjectName("actMediaReciter");
+       connect(actMediaReciter, SIGNAL(triggered()), this, SLOT(comboMediaExec()));
+   }
+
+
+
+   //----------------------------انشاء الصفحات و ناقذة التفاسير والتراجم----------------------------
+   void MainWindow::creatPagesAndPopup()
+   {
+       //انشاء اللوحة الام مع الصفحتين اليسرى واليمنى
+       panelParent = new QGraphicsWidget;
+       pageLeft=new QGraphicsPixmapItem(panelParent);
+       pageRight=new QGraphicsPixmapItem(panelParent);
+       pageLeft->setPos(0,0);
+       pageRight->setPos(m_pWith+1,0);
+       QPainter p;
+       //انشاء اطار سفلي
+       QPixmap pixbotum((m_pWith*2)+2,m_pHieght+2);
+       pixbotum.fill(Qt::transparent);
+       p.begin(&pixbotum);
+//        QLineF line(m_pWith, m_pHieght, m_pWith,0.0);
+//       p.drawLine(line);
+       p.setPen(QColor(127,120,25,250));
+       QRectF rect(0.0, 1.0, (m_pWith*2), m_pHieght-1);
+       p.drawRect(rect);
+       p.end();
+       //انشاء زرين على اليمين واليسار لسحب الصفحات
+       QPixmap pixT(1,1);
+       pixT.fill(Qt::transparent);
+       btnLeft=new Pixmap(pixT);
+       btnLeft->setGeometry(QRectF(0,0,30,m_pHieght));
+       connect(btnLeft, SIGNAL(enter()), this, SLOT(goNextEenter()));
+       connect(btnLeft, SIGNAL(leave()), this, SLOT(goNextLeave()));
+       connect(btnLeft, SIGNAL(pressed()), this, SLOT(goNextPrissed()));
+       connect(btnLeft, SIGNAL(release()), this, SLOT(goNextRelease()));
+       connect(btnLeft, SIGNAL(mouseMove()), this, SLOT(goNextMoved()));
+       btnRight=new Pixmap(pixT);
+       btnRight->setGeometry(QRectF((m_pWith*2)-30,0,30,m_pHieght));
+       connect(btnRight, SIGNAL(enter()), this, SLOT(goPrevEenter()));
+       connect(btnRight, SIGNAL(leave()), this, SLOT(goPrevLeave()));
+       connect(btnRight, SIGNAL(pressed()), this, SLOT(goPrevPrissed()));
+       connect(btnRight, SIGNAL(release()), this, SLOT(goPrevRelease()));
+       connect(btnRight, SIGNAL(mouseMove()), this, SLOT(goPrevMoved()));
+       //انشاء اطار لاستعماله عند تحريك الصفحات بواسطة الرسم التلقائي  من نوع لابل label
+       QGraphicsProxyWidget *maskProxy = new QGraphicsProxyWidget;
+       m_labMask=new QLabel();
+       m_labMask->setLayoutDirection(Qt::RightToLeft);
+       m_labMask->setGeometry(0,0,150,m_pHieght);
+       maskProxy->setWidget(m_labMask);
+       //انشاء اطار التحديد بابعاد اافتراضية
+       itemSelection = new Pixmap( updatePixSelect(60,382,382,1,0)); //type  0=button 1=selection 2=mask
+        itemSelection->setGeometry(QRectF(m_px+37,40,382,60));
+       //انشاء اطار للظل المتحرك اثناء تحريك الصفحات اليمنى واليسرى
+       QPixmap pixsRefletLeft(60,m_pHieght);
+       pixsRefletLeft.fill(Qt::transparent);
+       p.begin(&pixsRefletLeft);
+       p.drawPixmap(0,0,80,m_pHieght,QPixmap(":/img/reflet.png"));
+       p.end();
+       itemRefletLeft= new Pixmap(pixsRefletLeft);
+       itemRefletLeft->setGeometry(QRectF(0,1,80,m_pHieght));
+
+       QPixmap pixsRefletRight(80,m_pHieght);
+       pixsRefletRight.fill(Qt::transparent);
+       p.begin(&pixsRefletRight);
+       p.drawPixmap(0,0,80,m_pHieght,QPixmap(":/img/refletRight.png"));
+       p.end();
+       itemRefletRigt= new Pixmap(pixsRefletRight);
+       itemRefletRigt->setGeometry(QRectF(m_pWith-80,1,60,m_pHieght));
+       //انشاء اطار للرسم عليه اثناء حركة السحب بواسطة الماوس
+       picMoved=new QGraphicsPixmapItem(panelParent);
+
+       //انشاء نافذة التفاسير والتراجم
+    //قاعدة النافذة
+       panelPopup=new  QGraphicsWidget;
+       panelPopup->setZValue(99);
+       ItemPopup= new   QGraphicsPixmapItem (panelPopup);
+     //اداة النص الذي يعرض عليه التفسير والترجمة
+       textEdit=new QTextEdit();
+
+               connect(ui->actionZoomIn, SIGNAL(triggered()), textEdit, SLOT(zoomIn()));
+       connect(ui->actionZoomOut, SIGNAL(triggered()), textEdit, SLOT(zoomOut()));
+           textEdit->setFrameShape(QFrame::NoFrame);
+       QGraphicsProxyWidget *txtProxy = new QGraphicsProxyWidget();
+       QGraphicsProxyWidget *toolProxy = new QGraphicsProxyWidget();
+       txtProxy->setWidget(textEdit);
+       //لوحة الادوات التي تحتوي زر التكبير والتصغير وعنوان التفسير وقائمة االتبديل بين التفاسير والتراجم
+       QToolBar *toolbar=new QToolBar();
+       toolbar->setIconSize(QSize(16,16));
+       QHBoxLayout  *horizontalLayout = new QHBoxLayout();
+       QFrame *frame=new QFrame;
+       horizontalLayout->setContentsMargins(1,1,1,1);
+       horizontalLayout->addWidget(toolbar);
+       frame->setLayout(horizontalLayout);
+       QAction *actHidPop=new QAction(QIcon(":/img/list-remove.png"),trUtf8("&Hide"),frame);
+       connect(actHidPop, SIGNAL(triggered()), this, SLOT(hidePopup()));
+   //اضافة الادوات الى اللوحة
+       toolbar->addAction(actHidPop);
+       toolbar->addSeparator();
+       toolbar->addAction(ui->actionZoomIn);
+       toolbar->addAction(ui->actionZoomOut);
+       toolbar->addSeparator();
+       labelTransTefsir=new QLabel;
+       labelTransTefsir->setMaximumWidth(150);
+       toolbar->addWidget(labelTransTefsir);
+       QString labStyle="QLabel { font: bold;color: black;}";
+       labelTransTefsir->setStyleSheet(labStyle);
+       QToolButton *tbtnMenu=new QToolButton(frame);
+       tbtnMenu->setArrowType(Qt::DownArrow);
+       connect(tbtnMenu, SIGNAL(pressed()), this, SLOT(menuTefsirAndTranslation()));
+       toolbar->addWidget(tbtnMenu);
+       //استخدام سمة للوحة الادوات
+       QString str="QFrame ,QToolBar {"
+               "background-color: rgba(255, 255, 255, 0);border: 0px}";
+       frame->setStyleSheet(str);
+       frame->setFrameShape(QFrame::NoFrame);
+       frame->setLineWidth(0);
+       toolbar->setFloatable(false);
+       toolbar->setMovable(false);
+       toolProxy->setWidget(frame);
+       //--------------
+       //اظافة الادوات والاطارات السابقة الى قاعدة النافذة
+       panelPopup->setGeometry(0,0,m_pWith,(m_pHieght/2)+120);
+       QGraphicsGridLayout *gridLayout = new QGraphicsGridLayout();
+       gridLayout->addItem(toolProxy,0,1,Qt::AlignCenter);
+       gridLayout->addItem(txtProxy,1,1,Qt::AlignCenter);
+       gridLayout->setContentsMargins(70,70,70,70);
+       panelPopup->setLayout(gridLayout);
+
+       m_labMask->setVisible(false);
+       itemRefletLeft->setVisible(false);
+       itemRefletRigt->setVisible(false);
+       panelPopup->setVisible(m_showPopup);
+       emit popupVisible(m_showPopup);
+
+
+     //اعداد المشهد واضافة كل الصفحات والادوات السابقة
+       m_scene=new QGraphicsScene();
+        QLineF line(m_pWith, m_pHieght, m_pWith,0.0);
+      m_scene->addLine(line);
+       m_scene->addItem(panelParent);
+
+      m_scene->addPixmap(pixbotum);
+       m_scene->addItem(itemSelection);
+       m_scene->addItem(maskProxy);
+       m_scene->addItem(itemRefletLeft);
+       m_scene->addItem(itemRefletRigt);
+       m_scene->addItem(btnLeft);
+       m_scene->addItem(btnRight);
+       m_scene->addItem(panelPopup);
+
+        ui->graphicsView->setScene(sceenbase);
+       panelParent->setPos(0,1);
+
+   }
+
+void MainWindow::chargeDataTools()
+{
+    QFile file;
+    //تحميل  التراجم --------------------------------------------
+  file.setFileName(m_appPath+"/translat/translatInfo");
+  if(file.open( QFile::ReadOnly)){
+      QTextStream textStream(&file);
+      textStream.setCodec(QTextCodec::codecForName("UTF-8"));
+      QString line;
+      line = textStream.readLine();//premier line
+
+      QActionGroup *actTransGroup=new QActionGroup(this);
+      while (!line.isNull()) {
+          QString txtdata=line.section(",",0,0);
+          QString txt=line.section(",",1,1);
+          //comboTrans->addItem(txt,txtdata);
+          QAction *act=new QAction(txt,this);
+          act->setData(txtdata);
+          act->setCheckable(true);
+          connect(act, SIGNAL(triggered()), this, SLOT(translationChanged()));
+          myListActionTrans.append(act);
+          actTransGroup->addAction(act);
+
+          line = textStream.readLine();
+      }
+      if (myListActionTrans.count()>=m_curTranslation){
+          myListActionTrans.at(m_curTranslation)->setChecked(true);
+          QVariant data=  myListActionTrans.at(m_curTranslation)->data();
+          QString txt=  myListActionTrans.at(m_curTranslation)->text();
+          database->openDb(m_appPath+"/translat/"+data.toString());
+          convertTextToHtm(database->getTranslation(m_id));
+          labelTransTefsir->setText(txt);
+          isTefsirPopup=false;
+      }
+
+      ui->menuTranslation->addActions(myListActionTrans);
+  }
+
+  file.close();
+       //-تحميل التفاسير
+  file.setFileName(m_appPath+"/tafasir/tafasirInfo");
+  if(file.open( QFile::ReadOnly)){
+      QTextStream textStream(&file);
+         textStream.setCodec(QTextCodec::codecForName("UTF-8"));
+      QString line;
+      QList<QAction *>myListActionTefsir;
+      QActionGroup *actTefsirGroup=new QActionGroup(this);
+      line = textStream.readLine();//premier line
+      while (!line.isNull()) {
+          QString txtdata=line.section(",",0,0);
+          QString txt=line.section(",",1,1);
+          QAction *act=new QAction(txt,this);
+          act->setData(txtdata);
+          act->setCheckable(true);
+          connect(act, SIGNAL(triggered()), this, SLOT(tefsirChanged()));
+
+          myListActionTefsir.append(act);
+          actTefsirGroup->addAction(act);
+
+          line = textStream.readLine();
+      }
+
+      ui->menuTefsir->addActions(myListActionTefsir);
+  }
+  file.close();
+     //تحميل بيانات المقرئين------------------------------------------------------------
+  file.setFileName(QDir::homePath()+"/.elforkane/reciterInfo");
+
+  if(file.open( QFile::ReadOnly)){
+
+      QTextStream textStream(&file);
+      textStream.setCodec(QTextCodec::codecForName("UTF-8"));
+      QString line;
+      line = textStream.readLine();//premier line
+
+      while (!line.isNull()) {
+//QMessageBox::information(0,"",line);
+          QString txt=line.section(",",0,0);
+           QString txtdata=line.section(",",1,1);
+          comboBoxReciter->addItem(txt.trimmed(),txtdata.trimmed());
+
+          line = textStream.readLine();
+      }
+  }
+  file.close();
+
+}
+
+//انشاء نافذة الوسائط المتحركة
+void MainWindow::creatMediaControles()
+{
+    int panelwidth=0;
+int panelXpos=0;
+ if(m_standardTool==false){
+     panelwidth=m_pWith*2;//300 ; //m_pWith*2;
+     panelXpos=0;//m_pWith-150;//0;
+ }else{
+      panelwidth=300 ; //m_pWith*2;
+     panelXpos=m_pWith-150;//0;
+ }
+
+   QGraphicsPixmapItem *ItemMedia= new   QGraphicsPixmapItem (panelMedia);
+   QPixmap pixmap(panelwidth,80);
+   pixmap.fill(Qt::transparent);
+   //qreal rad =20;
+   QPainter p;
+   p.begin(&pixmap);
+   p.setRenderHint(QPainter::Antialiasing,true);
+   p.setPen(QColor(255, 255, 255,255));
+   QRectF rect(0.0,0.0,panelwidth,50.0);
+   p.setBrush(QColor(255, 255, 255, 120));
+   QRectF rectangle((panelwidth/2)-30, 5.5, 60.0, 60.0);
+   int startAngle = 16 * 210;
+   int spanAngle = 16 * 120;
+   p.drawRoundedRect(rect,9.0,9.0);
+   p.drawChord(rectangle, startAngle, spanAngle);
+
+   p.end();
+
+   ItemMedia->setPixmap(pixmap);
+   // ItemMedia2->setPixmap(pixmap);
+   panelMedia->setGeometry(panelXpos,(ui->graphicsView-> height()-m_pHieght)-10,panelwidth,70);
+   QGraphicsDropShadowEffect *efet=new QGraphicsDropShadowEffect;
+   efet->setOffset(5,5);
+   efet->setColor((QColor(63, 63, 63,200)))  ;
+   efet->setBlurRadius(15);
+
+   panelMedia->setGraphicsEffect(efet);
+   QGraphicsProxyWidget *txtProxy = new QGraphicsProxyWidget();
+   QToolBar *toolbar=new QToolBar();
+//   toolbar->setIconSize(QSize(20,20));
+   QVBoxLayout  *horizontalLayout = new QVBoxLayout();
+   QFrame *frame=new QFrame;
+   horizontalLayout->setContentsMargins(1,1,1,1);
+   horizontalLayout->setSpacing(0);
+           horizontalLayout->addWidget(toolbar);
+
+   frame->setLayout(horizontalLayout);
+  /* QString style=("QSlider::groove:horizontal {"
+                  "border: 1px;"
+
+                  "border-radius: 3px;"
+                  "height: 6px;"
+                  "background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:0, y2:1, stop:0 rgba(0, 0, 0, 50), stop:1 rgba(255, 255, 255,20));"
+                  "margin: 2px 0;}"
+                  "QSlider::handle:horizontal {"
+                "border-image: url(:/images/slider-n.png);"
+                "border-image: url(:/images/slider-h.png);"
+                  " width: 17px;"
+                  "margin: -2px 0;"
+                  "border-radius: 3px;}"
+                  "QSlider::handle:horizontal:hover {"
+                  " width: 17px;"
+                  "margin: -2px 0;"
+                  "border-radius: 3px;}" );
+
+  //slider->setStyleSheet(style);*/
+   //---
+
+       //    horizontalLayout->addWidget(slider);
+
+
+  if(m_standardTool==false){
+       toolbar->addAction(ui->actionOptions);
+       toolbar->addAction(ui->actionNavigation);
+       toolbar->addAction(ui->actionRepeatOption);
+       toolbar->addAction(ui->actionFullScreen);
+       toolbar->addAction(actTansTefsir);
+       toolbar->addSeparator();
+       toolbar->addAction(actMediaSafha);
+       toolbar->addAction(actMediaSura);
+       toolbar->addAction(actMediaAya);
+       toolbar->addAction(actMediaJozaa);
+       toolbar->addAction(actMediaHizb);
+       toolbar->addSeparator();
+       toolbar->addAction(actMediaReciter);
+       toolbar->addAction(ui->actionDlg);
+       toolbar->addSeparator();
+   }
+   toolbar->addWidget(volume);
+   toolbar->addAction(ui->actionPlayPause);
+   toolbar->addAction(ui->actionStopMedia);
+toolbar->addWidget(slider);
+//sceenbase->setwidjet(ui->actionPlayPause);
+
+   //  toolbar->addSeparator();
+   //--------
+   QString str="QFrame ,QToolBar {"
+           "background-color: rgba(255, 255, 255,0);border: 0px}";
+   frame->setStyleSheet(str);
+   frame->setFrameShape(QFrame::NoFrame);
+   frame->setLineWidth(0);
+   toolbar->setFloatable(false);
+   toolbar->setMovable(false);
+//toolbar->width()
+   txtProxy->setWidget(frame);
+
+   QGraphicsGridLayout *gridLayout = new QGraphicsGridLayout();
+   gridLayout->addItem(txtProxy,1,1,Qt::AlignCenter);
+   gridLayout->setContentsMargins(5,10,5,25);
+
+   connect(btnMedia, SIGNAL(release()), this, SLOT(moveMediaControle()));
+   btnMedia->setGeometry(QRectF((panelwidth/2)-30,50,60,24));
+   btnMedia->setCursor(Qt::PointingHandCursor);
+   //   gridLayout->addItem(btnMedia,2, 1,Qt::AlignCenter);
+   panelMedia->setLayout(gridLayout);
+   panelMedia->setPos(panelXpos,-10);
+
+   m_scene->addItem(panelMedia);
+   panelMedia->resize(panelMedia->size());
+}
+
+void MainWindow::actMediaExec()
+{
+    QAction *currenAction= qobject_cast<QAction *>(sender());
+    bool ok;
+    int min;
+    int val;
+    int max;
+    int ret;
+    QString title= trUtf8("getInteger");
+    QString name=currenAction->objectName();
+
+    if(name=="actMediaSafha") {
+        min=spinSafha->minimum();
+        val=spinSafha->value();
+        max=spinSafha->maximum();
+        title= trUtf8("get page");
+        ret=0;
+    }
+    if(name=="actMediaAya") {
+        min=spinAya->minimum();
+        val=spinAya->value();
+        max=spinAya->maximum();
+        title= trUtf8("get Aya");
+        ret=1;
+    }
+    if(name=="actMediaJozaa") {
+        min=spinJozaa->minimum();
+        val=spinJozaa->value();
+        max=spinJozaa->maximum();
+        title= trUtf8("get Jozaa");
+        ret=2;
+    }
+    if(name=="actMediaHizb") {
+        min=spinHizb->minimum();
+        val=spinHizb->value();
+        max=spinHizb->maximum();
+        title= trUtf8("get Hizb");
+        ret=3;
+    }
+
+    int i = QInputDialog::getInt(this,title,
+                                 trUtf8("enter Value:"), val, min, max, 1, &ok);
+    if (ok){
+        if(ret==0)
+        setPage(i);
+        if(ret==1)
+        setAya(comboSura->currentIndex()+1,i);
+        if(ret==2)
+        setJozaa(i);
+        if(ret==3)
+        setHizb(i);
+    }
+}
+
+void MainWindow::comboMediaExec()
+{
+  QAction *currenAction= qobject_cast<QAction *>(sender());
+    int val;
+      QString title;
+      QString label;
+    QStringList items;
+int ret;
+       bool ok;
+
+        QString name=currenAction->objectName();
+       if(name=="actMediaSura") {
+              val=comboSura->currentIndex();
+           int count=comboSura->count();
+           for(int i=0;i<count;i++){
+                 items <<comboSura->itemText(i);
+           }
+
+           title= trUtf8("get sura");
+           label=trUtf8("shows sura");
+           ret=0;
+       }
+
+       if(name=="actMediaReciter") {
+           val=comboBoxReciter->currentIndex();
+           int count=comboBoxReciter->count();
+           for(int i=0;i<count;i++){
+                 items <<comboBoxReciter->itemText(i);
+           }
+           title= trUtf8("get Reciter");
+           label=trUtf8("shows Reciter");
+           ret=1;
+       }
+       QString item = QInputDialog::getItem(this,title,
+                                            label, items, val, false, &ok);
+
+       if (ok && !item.isEmpty())
+           if(ret==0){
+       int ind=   comboSura->findText(item);
+       comboSura->setCurrentIndex(ind);
+                 goSura(ind);
+           }
+           if(ret==1){
+               int ind=   comboBoxReciter->findText(item);
+               comboBoxReciter->setCurrentIndex(ind);
+               comboBoxResiter_activated(ind);
+
+           }
+
+
+}
+
+void MainWindow::menuTefsirAndTranslation()
+{
+    QMenu menu(this);
+    menu.addMenu(ui->menuTranslation);
+    menu.addMenu(ui->menuTefsir);
+
+   menu.addAction(ui->actionQuranText);
+    menu.exec(QCursor::pos());
+}
+
+void MainWindow::resizeEvent ( QResizeEvent *  )
+   {
+       int ytop=0;
+       if  (m_fitInView==true)
+       ui->graphicsView->fitInView(QRect(0,0,m_pWith*2,m_pHieght),Qt::KeepAspectRatio);
+
+       if(ui->graphicsView->height()>m_pHieght||this->isFullScreen()||this->isMaximized()){
+        ytop=(ui->graphicsView->height()-m_pHieght)/2;
+           panelMedia->setPos(panelMedia->pos().x(),-(ytop+10));
+
+       }else{
+            panelMedia->setPos(panelMedia->pos().x(),-10);
+       }
+sceenbase->setParentSize(ui->graphicsView->width(),ui->graphicsView->height(),this->pos().x());
+      }
+
+void MainWindow::moveEvent ( QMoveEvent *  )
+{
+
+ sceenbase->setParentLeft(this->pos().x());
+}
+
+void MainWindow::changeEvent(QEvent *e)
+    {
+        QMainWindow::changeEvent(e);
+        switch (e->type()) {
+
+        case QEvent::LanguageChange:
+            ui->retranslateUi(this);
+            if(m_layouDir=="ltr"){
+                QApplication::setLayoutDirection(Qt::LeftToRight);
+            }else{
+                  QApplication::setLayoutDirection(Qt::RightToLeft);
+                  //ui->toolBox->setLayoutDirection(Qt::RightToLeft);
+            }
+             //  qDebug()<<m_layouDir;
+            break;
+        case QEvent::WindowStateChange:
+            if(this->isFullScreen()){
+                int x=(ui->graphicsView->height()-m_pHieght)/2+50;
+                panelMedia->setPos(panelMedia->pos().x(),-x);
+  ui->actionFullScreen->setShortcut(QApplication::translate("MainWindow", "Esc", 0, QApplication::UnicodeUTF8));
+}else{
+     ui->actionFullScreen->setShortcut(QApplication::translate("MainWindow", "F11", 0, QApplication::UnicodeUTF8));
+}
+
+
+         //   this->resize(this->size());
+         break;
+
+
+        default:
+            break;
+        }
+    }
+//---------------save and load settings--------------------------
+    void MainWindow::loadSetting()
+    {
+        QSettings settings(QDir::homePath()+"/.elforkane/setting.ini",QSettings::IniFormat);
+
+        settings.beginGroup("Main");
+        m_id=settings.value("id",1).toInt();
+        m_fitInView=  settings.value("fitInView", false).toBool();
+        m_animEnabled=  settings.value("animEnabled", true).toBool();
+        m_themeFolder=  settings.value("cadrFolder", trUtf8("default")).toString();
+        m_showPopup=  settings.value("showPopup", false).toBool();
+        m_receter=  settings.value("receter", 0).toInt();
+        m_showInfo=  settings.value("showInfo",true).toBool();
+        m_minimizToTry=  settings.value("minimizToTry",false).toBool();
+        m_lng= settings.value("lng","sys").toString();
+        m_textIcon=  settings.value("textIcon",false).toBool();
+        m_infoDely=settings.value("infoDely",5).toInt();
+        m_selectColor=settings.value("selectColor",QColor(127,120,25)).value<QColor>();
+        m_showMediaControl=settings.value("showMediaControl",false).toBool();
+         m_curTranslation=settings.value("curTranslation",0).toInt();
+         m_showMenu= settings.value("showMenu",false).toBool();
+          m_showSelection= settings.value("showSelection",true).toBool();
+          m_reciteBasmala= settings.value("reciteBasmala",true).toBool();
+          m_fullAnimEnable= settings.value("fullAnimEnable",true).toBool();
+   //       m_fullScreenBgr=  settings.value("bgrFullScreen", m_appPath+"/fullscreen/bgrFull.png").toString();
+          m_fullAnimated= settings.value("fullAnimated",false).toBool();
+m_fullIndex= settings.value("fullIndex",0).toInt();
+m_curentRiwaya= settings.value("curentRiwaya","hafs").toString();
+m_locale= settings.value("locale",0).toInt();
+m_standardTool=settings.value("standardTool",false).toBool();
+          settings.endGroup();
+     //  التحقق من المجلدات الصور في حالة تم حذفها او تغيرت الاعدادات او تشغيل البرنامج لاول مرة
+QDir dir;
+          if(!dir.exists(m_appPath+"/images/"+m_curentRiwaya)){
+              m_curentRiwaya="default";
+          }
+    }
+
+    void MainWindow::saveSetting()
+    {
+        QSettings settings(QDir::homePath()+"/.elforkane/setting.ini",QSettings::IniFormat);
+
+        settings.beginGroup("Main");
+        settings.setValue("id", m_id);
+        settings.setValue("fitInView", m_fitInView);
+        settings.setValue("animEnabled", m_animEnabled);
+        settings.setValue("cadrFolder", m_themeFolder);
+        settings.setValue("showPopup", m_showPopup);
+        settings.setValue("receter", m_receter);
+        settings.setValue("showInfo", m_showInfo);
+        settings.setValue("minimizToTry", m_minimizToTry);
+        settings.setValue("lng", m_lng);
+        settings.setValue("textIcon", m_textIcon);
+        settings.setValue("infoDely", m_infoDely);
+        settings.setValue("selectColor", m_selectColor);
+        settings.setValue("showMediaControl", m_showMediaControl);
+        settings.setValue("curTranslation", m_curTranslation);
+        settings.setValue("showMenu", m_showMenu);
+        settings.setValue("showSelection", m_showSelection);
+        settings.setValue("reciteBasmala", m_reciteBasmala);
+        settings.setValue("fullAnimEnable", m_fullAnimEnable);
+     //   settings.setValue("bgrFullScreen", m_fullScreenBgr);
+        settings.setValue("fullAnimated", m_fullAnimated);
+  settings.setValue("fullIndex", m_fullIndex);
+  settings.setValue("curentRiwaya", m_curentRiwaya);
+    settings.setValue("locale", m_locale);
+     settings.setValue("standardTool", m_standardTool);
+        settings.endGroup();
+
+    }
+    //----systry---
+    void MainWindow::createTrayIcon()
+    {
+        actionMinimiz=new QAction(trUtf8("&Minimize"),this);
+        actionRestore=new QAction(trUtf8("&Restore"),this);
+        connect(actionRestore, SIGNAL(triggered()), this, SLOT(showNormal()));
+        connect(actionMinimiz, SIGNAL(triggered()), this, SLOT(showMinimized()));
+        actionSowInfo=new QAction(trUtf8("&Show info"),this);
+        actionSowInfo->setCheckable(true);
+        actionSowInfo->setChecked(m_showInfo);
+        connect(actionSowInfo, SIGNAL(toggled(bool)), this, SLOT(setshowInfo(bool)));
+        QMenu *trayIconMenu = new QMenu(this);
+        trayIconMenu->addAction(ui->actionPlayPause);
+        trayIconMenu->addAction(ui->actionStopMedia);
+        trayIconMenu->addSeparator();
+        trayIconMenu->addAction(actionSowInfo);
+        trayIconMenu->addAction(actionMinimiz);
+        trayIconMenu->addAction(actionRestore);
+        trayIconMenu->addSeparator();
+        trayIconMenu->addAction(ui->actionQuit);
+
+        trayIcon = new QSystemTrayIcon(this);
+        connect(trayIcon, SIGNAL(activated(QSystemTrayIcon::ActivationReason)),
+                this, SLOT(iconActivated(QSystemTrayIcon::ActivationReason)));
+
+        trayIcon->setIcon(QIcon(":/img/mashaf48"));
+        trayIcon->setContextMenu(trayIconMenu);
+    }
+
+  void MainWindow::setshowInfo(bool show)
+  {
+      m_showInfo=show;
+  }
+
+    void MainWindow::iconActivated(QSystemTrayIcon::ActivationReason reason)
+    {
+        switch (reason) {
+        case QSystemTrayIcon::Trigger:
+            if(this->isHidden()){
+                     this->showNormal();
+        }else{
+                this->hide();
+            }
+
+
+      break;
+        case QSystemTrayIcon::DoubleClick:
+
+            break;
+        case QSystemTrayIcon::MiddleClick:
+                showMessage();
+      break;
+        default:
+            ;
+        }
+    }
+
+    void MainWindow::showMessage()
+    {
+
+        if(!this->isMinimized())
+            return;
+        if(m_showInfo==false)
+            return;
+
+        QSystemTrayIcon::MessageIcon icon = QSystemTrayIcon::MessageIcon(QSystemTrayIcon::Information);
+        QString txtTrans="";
+        if(m_showPopup==true)
+     txtTrans=textEdit->toPlainText();
+    trayIcon->showMessage(trUtf8("Sura :")+comboSura->currentText(), trUtf8(" Aya :")
+                          +QString::number(m_aya)+trUtf8(" Hizb :")+QString::number(m_hizb)+"\n"+txtTrans, icon,
+                             m_infoDely * 1000);
+    }
+
+
+//تحريك نافذة ادولت الوسائط
+void MainWindow:: moveMediaControle()
+{
+    int ptop=0;
+    if(ui->graphicsView->height()>m_pHieght||this->isFullScreen())
+        ptop=(ui->graphicsView->height()-m_pHieght)/2;
+
+   int y=panelMedia->pos().y();
+
+   // qDebug()<<y;
+    int x=panelMedia->pos().x();
+      if (m_animEnabled==false){//اذا كانت المؤثرات الحركية غير مفعلة
+           if (y<= -(ptop+50)){
+               panelMedia->setPos(QPointF(x, -(ptop+10)));
+
+           }else{
+                panelMedia->setPos(QPointF(x, -(ptop+50)));
+           }
+           return;
+      }
+
+    QPropertyAnimation * anim = new QPropertyAnimation(panelMedia, "pos");
+    if (y<= -(ptop+50)){//التحريك للاعلى
+
+       // anim->setStartValue(QPointF(x, -(ptop+50)));
+        anim->setEndValue(QPointF(x, -(ptop+10)));
+        anim->setEasingCurve(QEasingCurve::OutBounce);
+    }else{//التحريك للاسفل
+
+//        anim->setStartValue(QPointF(x,- (ptop+10)));
+            anim->setEndValue(QPointF(x, -(ptop+50)));
+        anim->setEasingCurve(QEasingCurve::InCubic);
+    }
+    anim->setDuration(750);
+    anim->start();
+}
+
+//--اعادة رسم وتحديث نافذة التراجم والتفاسير في الموضع المحدد--------------------------------
+  void MainWindow::updatPopup(qreal poY,qreal poX1,qreal poX2)
+  {
+      qreal poY2=poY;
+      if (poY2<80)
+          poY2=80;
+      if (poY2>m_pHieght-80)//اذا كان الموضع ع اكبر من طول الصفحة
+          poY2=m_pHieght-80;
+
+      if(isTefsirPopup==true){
+          //اذا كانت تحتوي على تفسير سيكون الحجم على حجم الصفحة
+          panelPopup->setGeometry(panelPopup->pos().x(),panelPopup->pos().y(),m_pWith,(m_pHieght));
+
+      }else{
+          panelPopup->setGeometry(panelPopup->pos().x(),panelPopup->pos().y(),m_pWith,(m_pHieght/2)+120);
+          if (poY2>(m_pHieght/2)){
+              int y=(m_pHieght/2)-120;
+              panelPopup->setPos(panelPopup->pos().x(),y);
+              poY2=poY2-y;
+              poY=poY-y;
+          }
+      }
+
+      QPainter p;
+      textEdit->setStyleSheet("QTextEdit{background-color: rgba(255, 255, 255, 20);"
+                              " background-attachment: fixed;"
+                             " font-family:KFGQPC Uthman Taha Naskh;}");
+
+      QPixmap pixmap(panelPopup->geometry().width(),panelPopup->geometry().height());
+      pixmap.fill(Qt::transparent);
+      p.begin(&pixmap);
+      p.setRenderHint(QPainter::Antialiasing,true);
+      p.setPen(QColor(255, 255, 255,255));
+      //ابعاد المربع
+      QRectF rect(60.0,60.0,panelPopup->geometry().width()-120,panelPopup->geometry().height()-120);
+      p.setBrush(QColor(255, 255, 255,180));
+      //النقاط الثلاثة للمثلث
+      QPointF points[3]={
+          QPointF(poX1-60,poY2-10.0),
+          QPointF(poX2,poY),
+          QPointF(poX1-60,poY2+10.0),
+      };
+      //رسم المربع
+      p.drawRoundedRect(rect,9.0,9.0);
+      //رسم مثلث الذي يشير الى الاية
+      p.drawPolygon(points,3);
+      p.end();
+      ItemPopup->setPixmap(pixmap);
+      //اضافة مؤثر الظل الى النافذة
+      QGraphicsDropShadowEffect *efet=new QGraphicsDropShadowEffect;
+      efet->setOffset(5,5);
+      efet->setColor((QColor(63, 63, 63,200)))  ;
+      efet->setBlurRadius(15);
+
+      ItemPopup->setGraphicsEffect(efet);
+
+  }
+
+void MainWindow::convertTextToHtm(QString text)
+{
+    text=text.replace("\\r\\n","");
+    QString aya=QString::number(m_aya)+ " - ";
+    QString textTrans=QString("< font color='red' >%1</font>< font color='blue' >%2</font> ").arg(aya).arg(text);
+    textEdit->setHtml(textTrans);
+    QLocale lc(this->locale().name());
+    if(myListSceen.count()>0){
+        QString translatTxt="";
+        if(panelPopup->isVisible())
+            translatTxt= textEdit->toPlainText();
+          if(m_fullAnimated==true&&this->isFullScreen())
+        sceenFullInterface->setInfo(trUtf8("Sura : ")+comboSura->currentText(),
+                                    trUtf8("   Jozaa : ")+lc.toString(m_jozaa),
+                                    trUtf8("   Hizb : ")+lc.toString(m_hizb),
+                                    trUtf8("   Robaa : ")+lc.toString(m_robaa),
+                                    trUtf8("   Aya : ")+lc.toString(m_aya),
+                                    trUtf8("     El Chiekh : ")+comboBoxReciter->currentText(),
+                                   translatTxt);
+}
+}
+
+
+     //التحقق من مسارات الصور للسمة ان كانت موجودة
+void MainWindow::locateThemePath()
+{
+
+    QString imgPath=m_appPath+"/themes/"+m_themeFolder;
+
+        QFile file;
+    if (!file.exists(imgPath+"/top.png") || !file.exists(imgPath+"/top_right.png")||!file.exists(imgPath+"/left.png")||
+            !file.exists(imgPath+"/right.png")||!file.exists(imgPath+"/bot.png")||!file.exists(imgPath+"/bot_right.png")||
+            !file.exists(imgPath+"/top_left.png")||!file.exists(imgPath+"/bot_left.png"))  {
+
+        m_themeFolder=trUtf8("default");
+        imgPath=":/images/image";
+    }
+
+}
+
+
+    //الانتقال الى الموضع المحدد
+    //! [1]
+void MainWindow::setCurentPos(int pos)
+{
+    if (pos>6236||pos<1)//اذا كان الموضع اقل من 1 او اكبر من عدد الايات
+        return;
+    //جلب بيانات الموضع الحالي والذي يسبقه
+    QString txtPrev=    database->myList->at(pos-1);
+    QString txt=    database->myList->at(pos);
+    //تقسيم النص لجلب البيانات
+    m_id=txt.section(",",0,0).trimmed().toInt();
+    int surat=txt.section(",",1,1).trimmed().toInt();
+    m_aya=txt.section(",",2,2).trimmed().toInt();
+    QString safha=txt.section(",",3,3).trimmed();
+QString xCurent=txt.section(",",4,4).trimmed();
+    m_y=txt.section(",",5,5).trimmed();
+    m_jozaa=txt.section(",",6,6).trimmed().toInt();
+    m_hizb=txt.section(",",7,7).trimmed().toInt();
+    m_robaa=txt.section(",",8,8).trimmed().toInt();
+
+    QString aya="000"+QString::number(m_aya);
+    QString sura="000"+QString::number(surat);;
+    m_soundName=sura.right(3)+aya.right(3) ;
+    //   معرفة احداثيات س و ع السابقة
+    QString xPrev=txtPrev.section(",",4,4).trimmed();
+    QString sFirst=txtPrev.section(",",3,3).trimmed();
+    QString yFirst=txtPrev.section(",",5,5).trimmed();
+
+//اذا تغيرت الصفحة وكان اعداد تكرار الصفحة مفعل سيجلب اول اية واخرها في الصفحة
+    if (m_curentSafha!=safha.toInt()){
+        m_curentSafha=safha.toInt();
+
+        if(m_autoRepeatPage==true)
+            chargeLastAndFirstAya();
+    }
+    //اذا تغيرت السورة وكان خيار تكرار السورة سجلب بيان اول واخر اية في السورة
+    if(m_sura!=surat){
+        m_sura=surat;
+        if(m_autoRepeatSura==true)
+            chargeLastAndFirstAya();
+    }
+//معرفة اذا كان العدد زوجي او فردي
+    int d=(safha.toInt());
+    int i=fmod(d,2);
+    if (safha.toInt() >m_curentSafhaLeft){//اذا كانت الصفحة المطلوبة اكبر من الصفحة الحالية اليسرى
+        if (i==1){
+            m_curentSafhaRight=safha.toInt();
+            m_curentSafhaLeft=(safha.toInt()+1);
+        }else{
+            m_curentSafhaRight=(safha.toInt()-1);
+            m_curentSafhaLeft=safha.toInt();
+        }
+        itemSelection->setVisible(false);
+        panelPopup->setVisible(false);
+        animPageRight();
+        sceenbase->setCurentPages(m_curentSafhaLeft,m_curentSafhaRight,m_curentSafha);
+          sceenbase->setAnimPageRight();
+       // sceenbase->setNewPages(m_curentSafhaLeft,m_curentSafhaRight,m_curentSafha);
+    }else if(safha.toInt()<m_curentSafhaRight){//اذا كانت الصفحة المطلوبة اقل من الصفحة الحالية اليمنى
+        m_curentSafhaRight=(safha.toInt()-1);
+        m_curentSafhaLeft=safha.toInt();
+        if (i==1){
+            m_curentSafhaRight=safha.toInt();
+            m_curentSafhaLeft=(safha.toInt()+1);
+        }else{
+            m_curentSafhaRight=(safha.toInt()-1);
+            m_curentSafhaLeft=safha.toInt();
+        }
+        itemSelection->setVisible(false);
+        panelPopup->setVisible(false);
+        animPageLeft();
+          sceenbase->setCurentPages(m_curentSafhaLeft,m_curentSafhaRight,m_curentSafha);
+        sceenbase->setAnimPageLeft();
+//sceenbase->setNewPages(m_curentSafhaLeft,m_curentSafhaRight,m_curentSafha);
+    }
+
+
+    if (i==1){//اذا كانت الصفحة تحمل رقما فرديا يتم رسم نافذة التفاسير على اليمين
+        m_px=457;
+        panelPopup->setPos(0,0);
+        updatPopup(m_y.toInt(),m_pWith,m_pWith);
+        sceenbase->updatPopup(m_y.toInt(),m_pWith,m_pWith,0);
+    }else{
+        m_px=0;
+        panelPopup->setPos(457,0);
+        updatPopup(m_y.toInt(),120,0);
+          sceenbase->updatPopup(m_y.toInt(),120,0,457);
+    }
+    //اذا كانت الصفحة المطلوبة لا تساوي الحالية ستكون ع =60لانها صفحة جديدة
+    if(sFirst!=safha){
+        yFirst="60";
+        xPrev="430";
+    }
+    int high=m_y.toInt()-yFirst.toInt();
+    int top=m_y.toInt()-high;
+
+
+    if(m_showPopup==true)//اذا كان عرض التفاسير والتراجم مفعل
+        convertTextToHtm(database->getTranslation(m_id));
+    //نقل التحديد الى الموضع الجديد
+    moveSelection(top-20,high+40,xCurent.toInt()-8,xPrev.toInt()-8);
+
+//تحديد الموضع الحالي في الفهرسة
+    QVariant dd=m_id;
+    QTreeWidgetItem *item=new QTreeWidgetItem;
+    QList<QTreeWidgetItem *> found =ui->treeWidgetIndex->findItems( dd.toString(),Qt::MatchExactly | Qt::MatchRecursive,1);
+        foreach (item, found){
+       ui-> treeWidgetIndex->setCurrentItem(item);
+    }
+    //-----------تحديث بيانات الادوات
+    comboSura->setCurrentIndex(m_sura-1);
+    spinAya->setValue(m_aya);
+    spinJozaa->setValue(m_jozaa);
+    spinHizb->setValue(m_hizb);
+    spinSafha->setValue(m_curentSafha);
+
+    //if(showtoolbaredia==true)
+    QLocale lc(this->locale().name());
+ //p.drawText(rectangle, Qt::AlignCenter,lc.toString(num.toInt()));
+  actMediaSafha->setText(trUtf8("S :")+lc.toString(m_curentSafha));
+actMediaSura->setText(comboSura->currentText());
+actMediaAya->setText(trUtf8("A :","aya")+lc.toString(m_aya));
+actMediaJozaa->setText(trUtf8("J :","jozaa")+lc.toString(m_jozaa));
+actMediaHizb->setText(trUtf8("H :","hizb")+lc.toString(m_hizb));
+actMediaReciter->setText(comboBoxReciter->currentText());
+
+    qDebug()<<QString("-------------- pos %1-------------").arg(QString::number(m_id));
+    qDebug()<<"jozaa =" +QString::number(m_jozaa);
+    qDebug()<<"hizb =" +QString::number(m_hizb);
+    qDebug()<<"robaa =" +QString::number(m_robaa);
+    qDebug()<<"sura =" +QString::number(m_sura);
+    qDebug()<<"aya =" +QString::number(m_aya);
+    qDebug()<<"id =" +QString::number(m_id);
+    qDebug()<<"curentSafha =" +QString::number(m_curentSafha);
+    qDebug()<<"curentSafhaLeft =" +QString::number(m_curentSafhaLeft);
+    qDebug()<<"curentSafhaRight =" +QString::number(m_curentSafhaRight);
+    qDebug()<<"soundName =" +(m_soundName);
+    qDebug()<<"soundPath =" +(m_soundPath);
+     qDebug()<<"soundUrl =" +(m_soundUrl);
+qDebug()<<item->text(0);
+    showMessage();//عرض التنبيه قرب الساعة اذا كان محدد
+
+
+}
+    //! [2]
+void MainWindow::moveSelection(int top,int hight,int x1,int x2)
+{
+    if(this->isFullScreen()){
+         if(myListSceen.count()>0)
+        fullScreenPixmap(top,hight,x1,x2);
+    }
+    if(m_autoRepeatOne==false){     //اذا كان وضع القراءة وتم تحريك التحديد
+        if(isPlay==true){
+            mediaPlay();
+        }
+    }
+    //اعادة رسم التحديد
+sceenbase->setMoveSelection( top, hight, x1, x2,m_px);
+
+    itemSelection->setPixmap( updatePixSelect(hight,x1,x2,1,0));
+ //type  0=button 1=selection 2=mask
+    if(m_showSelection==false){      //اذا كان التحديد غير مفعل
+        if (m_animEnabled==false){      //اذا لم تكن المؤثرات الحركية مفعلة
+            itemSelection->setGeometry(QRect(m_px+x1-4, m_y.toInt()-12,24,26));
+        }else{
+            QPropertyAnimation * anim = new QPropertyAnimation(itemSelection, "geometry");
+            anim->setEasingCurve(QEasingCurve::OutQuad);
+            anim->setEndValue(QRect(m_px+x1-4, m_y.toInt()-12,24,26));
+            anim->setDuration(550);
+            anim->start();
+        }
+        return;
+    }
+
+    if (m_animEnabled==false){      //اذا لم تكن المؤثرات الحركية مفعلة
+        itemSelection->setGeometry(QRect(m_px+37, top,382,hight));
+        return;
+    }
+    // المؤثر الحركي لانتقال التحديد
+    QPropertyAnimation * anim = new QPropertyAnimation(itemSelection, "geometry");
+    anim->setEasingCurve(QEasingCurve::OutQuad);
+    anim->setEndValue(QRect(m_px+37, top,382,hight));
+    anim->setDuration(550);
+    anim->start();
+
+}
+
+//--------------------
+    //! [2]
+QPixmap MainWindow::updatePixSelect(int h,int x1 ,int x2,int type,int item)
+{
+    //type  0=button 1=selection 2=mask
+    QPainter p;
+    QPainterPath path;
+QColor myColor=m_selectColor;
+ myColor.setAlpha(50);
+if(type==2){
+myColor=Qt::white;
+ myColor.setAlpha(250);
+}
+    if(m_showSelection==false&&type==1){//اذا كان التحديد غير مفعل سيتم رسم دائرة حول رقم الاية
+        QPixmap pix(24,26);
+        pix.fill(Qt::transparent);
+        p.begin(&pix);
+        p.setRenderHint(QPainter::Antialiasing,true);
+
+        p.setPen(myColor);
+        //    QRectF rect(0.0,0.0,300,50.0);
+        p.setBrush(myColor);
+        //   myColor.setAlpha(100);
+        p.drawEllipse(QRect(0, 0,24,26));
+        p.end();
+        return pix;
+    }
+
+
+    QPixmap pixselect(384,h);
+    pixselect.fill(Qt::transparent);
+    p.begin(&pixselect);
+
+    int top=0;
+
+    //اذا كان ترقيم الاية في اخر السطر تأخذ القيمة 0 حتى لايتم رسمها
+    //qDebug()<<"this x2  : "+QString::number(x2);
+    if(x2<60){
+        x2=0;
+
+    }
+    p.setPen(myColor);
+    //اذا كلنت الاية تتكون من سطر واحد اي طول اتحديد اقل من 50
+    //  qDebug()<<"this hight  : "+QString::number(h);
+    if (h<=50){
+       // if(type>0)
+        p.fillRect(x1-40,top,x2-x1,40,myColor);
+        p.end();
+         //type  0=button 1=selection 2=mask
+    if(type!=1){
+        path.addRect(x1-40,0,x2-x1,40);
+        buttons.at(item)->setPath(path);
+    }
+        return pixselect;
+    }
+    //اذا كانت الاية تتكون من سطرين
+
+    if(h<=85){
+
+  //if(type>0){
+        p.fillRect(0,top,x2-40,40,myColor);
+        p.fillRect(x1-40,top+40,382-x1+40,40,myColor);
+ // }
+        p.end();
+        if(type!=1){
+            path.addRect(0,top,x2-40,40);
+             path.addRect(x1-40,top+40,382-x1+40,40);
+            buttons.at(item)->setPath(path);
+        }
+//        qDebug()<<"this hight  : "+QString::number(h);
+//         qDebug()<<"this x1  : "+QString::number(x1);
+//         qDebug()<<"this x2  : "+QString::number(x2);
+        return pixselect;
+    }
+    //اكثر من سطرين
+   //   if(type>0){
+    p.fillRect(0,top,-40+x2,40,myColor);
+     p.fillRect(0,40,382,h-80,myColor);
+    p.fillRect(x1-40,h-40,382-x1+40,40,myColor);
+//}
+    p.end();
+    if(type!=1){
+        path.addRect(0,top,-40+x2,40);
+         path.addRect(0,40,382,h-80);
+        path.addRect(x1-40,h-40,382-x1+40,40);
+         buttons.at(item)->setPath(path);
+    }
+    return pixselect;
+}
+//---------------------
+    //! [2]
+void MainWindow::fullScreenPixmap(int top,int high,int x1,int x2)
+{
+    QString translatTxt="";
+    if(panelPopup->isVisible())
+        translatTxt= textEdit->toPlainText();
+    QPixmap pix(m_appPath+"/images/"+m_curentRiwaya+"/"+QString::number(m_curentSafha)+".png");//الصفحة التي يتم الرسم منها
+    QPainter p;//الطابعة
+    QString textTrans="";
+    if(m_showPopup==true)//اذا كانت نافذة التفاسير ظاهرة سيجلب  النص
+        textTrans=textEdit->toPlainText();
+
+    if(m_curentSafha==1||m_curentSafha==2){     //اذا كانت الصفحة الاولى او الثانية سيعيد الصفحة بكاملها
+
+        QPixmap pixdest(382,468);
+        pixdest.fill(Qt::white);
+        QRect rect(69,144,320,468);
+        QRect rectDest(31,0,320,468);
+        p.begin(&pixdest);
+        p.drawPixmap(rectDest,pix,rect);//رسم مربع الاية
+        p.end();
+        sceenFullInterface->setPixmapAya(pixdest);//اعادة الرسم الى مشهد ملء الشاشة
+        QLocale lc(this->locale().name());
+
+        sceenFullInterface->setInfo(trUtf8("Sura : ")+comboSura->currentText(),
+                                    trUtf8("   Jozaa : ")+lc.toString(m_jozaa),
+                                    trUtf8("   Hizb : ")+lc.toString(m_hizb),
+                                    trUtf8("   Robaa : ")+lc.toString(m_robaa),
+                                    trUtf8("   Aya : ")+lc.toString(m_aya),
+                                    trUtf8("     El Chiekh : ")+comboBoxReciter->currentText(),
+                                    translatTxt);
+        return;//ليس بحاجة الى الباقي
+    }
+
+    QRect rectselect(37, top,382,high);//المربع المحدد للاية
+
+    QPixmap pixAyaSource(382,high);//الاطار الذي يتم ارسم الاية عليه
+    pixAyaSource.fill(Qt::transparent);//جعل اطار الاية شفافا
+    p.begin(&pixAyaSource);//بداية الرسم
+    p.drawPixmap(pixAyaSource.rect(),pix,rectselect);//رسم مربع الاية
+    p.end();//نهاية رسم مربع الاية
+    //  if(x2<60)x2=1;
+
+    int top1=0,top2=40, hight=high, bot=80;
+
+    if(x2<60)
+        top1=-40,top2=0,hight=high-40,bot=40;
+
+  //  qDebug()<<"this x2  : "+QString::number(x2);
+  //   qDebug()<<"this old hight  : "+QString::number(high);
+     //  qDebug()<<"this new hight  : "+QString::number(hight);
+    QPixmap pixFull(382,hight);//الصورة التي تعاد الى مشهد ملأ الشاشة
+    pixFull.fill(Qt::white);//جعل اطار الاية شفاف
+
+  //qDebug()<<"this top1  : "+QString::number(top1);
+ //  qDebug()<<"this top2  : "+QString::number(top2);
+p.begin(&pixFull);
+    if (high<=45){                          //اذا كانت الاية تتكون من سطر واحد
+        int w=(382-(x2-x1))/2;
+        QRect rectSource(x1-40,0,x2-x1,40);
+        QRect rectDeste(w,0,x2-x1,40);
+
+        p.drawPixmap(rectDeste,pixAyaSource,rectSource);//رسم السطر الاول
+    }else if(high<=85){               //اذا كانت الاية تتكون من سطر ين
+
+        //1سطر
+
+        int w=(382-(x2-40))/2;
+        QRect rectSource(0,0,x2-40,40);
+        QRect rectDeste(w,top1,x2-40,40);
+        p.drawPixmap(rectDeste,pixAyaSource,rectSource);//رسم السطر الاول
+        //2سطر
+        int w2=(382/2)-((382-x1+40)/2);
+        QRect rectSource2(x1-40,40,382-x1+40,40);
+        QRect rectDeste2(w2,top2,382-x1+40,40);
+        p.drawPixmap(rectDeste2,pixAyaSource,rectSource2);
+    }else{                                     //اذا كانت الاية تتكون من 3 اسطر
+      //  qDebug()<<"line3----------------------------******";
+
+        //1سطر
+        int w=(382-(x2-40))/2;
+
+        QRect rectSource(0,0,x2-40,40);
+        QRect rectDeste(w,top1,x2-40,40);
+        p.drawPixmap(rectDeste,pixAyaSource,rectSource);//رسم السطر الاول
+        //2سطر
+        QRect rectSource2(0,40,382,high-80);
+        QRect rectDeste2(4,top2,382,hight-bot);
+        p.drawPixmap(rectDeste2,pixAyaSource,rectSource2);
+        //3سطر
+        int w2=(382/2)-((382-x1+40)/2);
+        QRect rectSource3(x1-40,high-40,382-x1+40,40);
+        QRect rectDeste3(w2,hight-40,382-x1+40,40);
+        p.drawPixmap(rectDeste3,pixAyaSource,rectSource3);
+    }
+    //رسم مربع على الصورة
+    p.setPen(QColor(164,164,164));
+    QRectF rectangle(0.0, 0.0, 381.0, hight-1);
+    p.drawRect(rectangle);
+    p.end();
+    sceenFullInterface->setPixmapAya(pixFull);//اعادة الرسم الى مشهد ملء الشاشة
+    QLocale lc(this->locale().name());
+    sceenFullInterface->setInfo(trUtf8("Sura : ")+comboSura->currentText(),
+                                trUtf8("   Jozaa : ")+lc.toString(m_jozaa),
+                                trUtf8("   Hizb : ")+lc.toString(m_hizb),
+                                trUtf8("   Robaa : ")+lc.toString(m_robaa),
+                                trUtf8("   Aya : ")+lc.toString(m_aya),
+                                trUtf8("     El Chiekh : ")+comboBoxReciter->currentText(),
+                                translatTxt);//اغادة البيانات الى المشهد
+}
+
+//تحريك الصفحة تلقائيا الى اليمين
+void MainWindow::animPageRight()
+{
+    if (m_animEnabled==false){
+        newPages();
+        return;
+    }
+
+    // m_labMask->setLayoutDirection(Qt::RightToLeft);
+    m_labMask->setAlignment(Qt::AlignLeft);
+    m_labMask->setVisible(true);
+
+    itemRefletLeft->setVisible(true);
+    m_labMask->setGeometry(m_difer,0,m_difer,m_pHieght);
+    itemRefletLeft->setGeometry(QRect(m_difer-35,0,80,m_pHieght));
+
+    QString pixRight=m_appPath+"/images/"+m_curentRiwaya+"/"+QString::number(m_curentSafhaRight)+".png";
+    QString pixLeft=m_appPath+"/images/"+m_curentRiwaya+"/"+QString::number(m_curentSafhaLeft)+".png";
+
+
+ m_labMask->setPixmap( disignePage( pixRight));
+    pageLeft->setPixmap(disignePage(pixLeft));
+
+
+    QPropertyAnimation * anim3 = new QPropertyAnimation(m_labMask, "geometry");
+    anim3->setEndValue(QRect(m_pWith,0,m_pWith,m_pHieght));
+    anim3->setDuration(750);
+    anim3->setEasingCurve(QEasingCurve::OutCubic);
+
+    QPropertyAnimation * anim4 = new QPropertyAnimation(itemRefletLeft, "pos");
+    // anim4->setEndValue(QRect(m_pWith,0,60,m_pHieght));
+    anim4->setEndValue(QPoint(m_pWith-35,0));
+    anim4->setEasingCurve(QEasingCurve::OutCubic);
+    anim4->setDuration(750);
+    connect( anim3, SIGNAL(finished()), this, SLOT(newPages()));
+    QParallelAnimationGroup *group = new QParallelAnimationGroup;
+
+    group->addAnimation(anim3);
+    group->addAnimation(anim4);
+
+    group->start();
+
+    m_difer=10;
+}
+//تحريك الصفحة تلقائيا الى اليسار
+void MainWindow::animPageLeft()
+{
+    if (m_animEnabled==false){
+        newPages();
+        return;
+    }
+    int with=m_pWith*2;
+
+    //   m_labMask->setLayoutDirection(Qt::LeftToRight);
+    m_labMask->setAlignment(Qt::AlignRight);
+    m_labMask->setVisible(true);
+    itemRefletRigt->setVisible(true);
+
+    m_labMask->setGeometry(with-m_difer,0,m_difer/2,m_pHieght);
+    itemRefletRigt->setGeometry(QRect(with-(m_difer/2)-55,0,80,m_pHieght));
+
+
+    QString pixLeft=m_appPath+"/images/"+m_curentRiwaya+"/"+QString::number(m_curentSafhaLeft)+".png";
+    QString pixRight=m_appPath+"/images/"+m_curentRiwaya+"/"+QString::number(m_curentSafhaRight)+".png";
+
+
+    m_labMask->setPixmap(  disignePage(pixLeft));
+    pageRight->setPixmap(disignePage(pixRight));
+
+    QPropertyAnimation * anim3 = new QPropertyAnimation(m_labMask, "geometry");
+    anim3->setEndValue(QRect(0,0,m_pWith,m_pHieght));
+    anim3->setDuration(750);
+    anim3->setEasingCurve(QEasingCurve::OutQuint);
+
+    QPropertyAnimation * anim4 = new QPropertyAnimation(itemRefletRigt, "pos");
+
+    anim4->setEndValue(QPoint(m_pWith-55,0));
+    anim4->setEasingCurve(QEasingCurve::OutQuint);
+    anim4->setDuration(750);
+    connect( anim3, SIGNAL(finished()), this, SLOT(newPages()));
+    QParallelAnimationGroup *group = new QParallelAnimationGroup;
+
+    group->addAnimation(anim3);
+    group->addAnimation(anim4);
+
+    group->start();
+    m_difer=10;
+}
+//رسم الصفحات
+QPixmap MainWindow::disignePage(QString safha)
+{
+    bool defaultThem=false;
+
+    QFileInfo fi(safha);
+    QString num=fi.baseName();
+
+
+        if (m_themeFolder==trUtf8("default")&&m_curentRiwaya!="default")
+            return safha;
+        if(m_themeFolder==trUtf8("default")&&m_curentRiwaya=="default")
+           defaultThem=true;
+
+
+    QPixmap pixMy(safha);
+    QPainter p;
+
+
+    QString arbaaStr=database->myListArbaa->at(num.toInt());
+    QString robaa=arbaaStr.section(",",2,2).trimmed();
+    QString robaaY=arbaaStr.section(",",1,1).trimmed();
+    QString robahizb=arbaaStr.section(",",0,0).trimmed();
+    QPixmap pixtop(37,37);
+    //-----------بداية الرسم
+    p.begin(&pixMy);
+  //  pixtop.fill(Qt::white);
+  //    p.setCompositionMode(QPainter::CompositionMode_Source);
+    p.setRenderHint(QPainter::Antialiasing,true);
+ QString imgThemePath=m_appPath+"/themes/"+m_themeFolder;
+    if(defaultThem==false){
+
+        //-------رسم زخارف الجهة العليا والسفلى
+        pixtop.load( imgThemePath+"/top.png") ;
+        int count=(m_pWith/pixtop.width())+1;
+        for (int i=0;i<count;i++){
+
+            p.drawPixmap(i*pixtop.width(),0,pixtop.width(),38,pixtop);
+        }
+
+        QPixmap pixbot( imgThemePath+"/bot.png") ;
+        for (int i=0;i<count;i++){
+            p.drawPixmap(i*pixbot.width(),m_pHieght-38,pixbot.width(),38,pixbot);
+        }
+
+        //-------رسم زخارف الجهة اليسرى واليمنى
+         QPixmap pixleft( imgThemePath+"/left.png") ;
+        int count2=(m_pHieght/pixleft.height())+1;
+        // qDebug()<<count2;
+        for (int i=0;i<count2;i++){
+            p.drawPixmap(0,i*pixleft.height(),38,pixleft.height(),pixleft);
+        }
+        QPixmap pixright( imgThemePath+"/right.png") ;
+        for (int i=0;i<count2;i++){
+            p.drawPixmap(m_pWith-38,i*pixright.height(),38,pixright.height(),pixright);
+        }
+        //---------رسم زخارف الزوايا
+
+       QPixmap pixtop_left( imgThemePath+"/top_left.png") ;
+        p.drawPixmap(0,0,38,38,pixtop_left);
+       QPixmap top_right( imgThemePath+"/top_right.png") ;
+        p.drawPixmap(m_pWith-38,0,38,38,top_right);
+        QPixmap bot_left( imgThemePath+"/bot_left.png") ;
+        p.drawPixmap(0,m_pHieght-38,38,38,bot_left);
+       QPixmap pixbot_right( imgThemePath+"/bot_right.png") ;
+        p.drawPixmap(m_pWith-38,m_pHieght-38,38,38,pixbot_right);
+
+        //--------------------------------------------------------------------------------------
+    }else{
+        QPixmap pixDefault(m_appPath+"/default.png");
+        p.drawPixmap(pixMy.rect(),pixDefault);
+    }
+    //------رسم ارقام الصفحات
+     QLocale lc(this->locale().name());
+    QRectF rectangle(m_pWith/2-24, m_pHieght-30, 40, 28);
+    p.setBrush(QColor(255, 255, 255,200));
+    p.drawEllipse(rectangle);
+    p.drawText(rectangle, Qt::AlignCenter,lc.toString(num.toInt()));
+    //-------  رسم الارباع و بعض الاستثناءات
+    if (robaa.toInt()>0){
+        QPixmap pixRbaa(":/img/r"+robaa+".png");
+        if(QFile::exists(imgThemePath+"/r"+robaa+".png"))
+            pixRbaa.load(imgThemePath+"/r"+robaa+".png");
+        int pLeft=0;
+        int i=fmod(num.toInt(),2);
+        if(i==1)
+            pLeft=m_pWith-pixRbaa.width();
+        p.drawPixmap(pLeft,robaaY.toInt()-pixRbaa.height()/2,pixRbaa);
+        if(robaa!="5"){
+            QRect rect(pLeft+3,robaaY.toInt(),30,25);
+            p.drawText(rect, Qt::AlignCenter,lc.toString(robahizb.toInt()));
+        }
+        if (num=="454"||num=="589"){
+            QPixmap pixRbaaBack(":/img/r5.png");
+            if(QFile::exists(imgThemePath+"/r5.png"))
+                pixRbaaBack.load(imgThemePath+"/r5.png");
+            if (num=="454")
+                p.drawPixmap(pLeft,457-pixRbaa.height()/2,pixRbaaBack);
+            if (num=="589")
+                p.drawPixmap(pLeft,573-pixRbaa.height()/2,pixRbaaBack);
+        }
+    }
+    p.end();
+    return pixMy;
+}
+//رسم الصفحات الجديدة
+void MainWindow::newPages()
+{
+
+    m_labMask->setVisible(false);
+    itemRefletLeft->setVisible(false);
+    itemRefletRigt->setVisible(false);
+    itemSelection->setVisible(true);
+    panelPopup->setVisible(m_showPopup);
+    emit popupVisible(m_showPopup);
+
+    if (m_curentSafhaRight==1){
+        btnRight->setEnabled(false);
+    }else{
+        btnRight->setEnabled(true);
+    }
+    if (m_curentSafhaLeft==604){
+        btnLeft->setEnabled(false);
+    }else{
+        btnLeft->setEnabled(true);
+    }
+//    for (int i = 0; i <items.count(); ++i) {
+//        m_scene->removeItem(items.at(i));
+//        delete items.at(i);
+//    }
+//    items.clear();
+    //--------------------------------------------------old------------------------
+    for (int i = 0; i <buttons.count(); ++i) {
+        m_scene->removeItem(buttons.at(i));
+        delete buttons.at(i);
+    }
+    buttons.clear();
+    //رسم ازرار على الايات
+    QString lineLeft=database->myListSafhat->at(m_curentSafhaLeft);
+    QString lineRight=database->myListSafhat->at(m_curentSafhaRight);
+
+    int countRight=lineRight.count("|");
+    int countLeft=lineLeft.count("|");
+
+//    QPixmap mypix(28,28);
+//    mypix.fill(Qt::transparent);
+//     updatePixSelect(hight,x1,x2);
+
+ //   int height=0;
+
+    //   int height=0;
+       //--------------ازرار الصفحة اليمنى
+    int xold=430;
+    int yold=60;
+    int itemIndex=-1;
+    for (int r=0;r <countRight+1 ;r++){
+        itemIndex=r;
+           QString txt=lineRight.section("|",r,r).trimmed();
+QString id =txt.section(",",0,0).trimmed();
+           int mx =txt.section(",",1,1).trimmed().toInt();
+           int my =txt.section(",",2,2).trimmed().toInt();
+          int height=my-yold;
+          Button *item = new Button(QPixmap());
+         buttons << item;
+            QPixmap pix(updatePixSelect(height+40,mx-12,xold-8,0,itemIndex));
+ //type  0=button 1=selection 2=mask
+            item->setPixmap(pix);
+           m_scene->addItem(item);
+          item->setGeometry(QRectF((m_pWith+40),yold-14,pix.width(),pix.height()-4));
+           item->setCursor(Qt::PointingHandCursor);
+  item->setData(0,id);
+item->setOpacity(0.01);
+           xold=mx-4;
+           yold=my;
+   connect(item, SIGNAL(release()), this, SLOT(goAyaSelected()));
+   connect(item, SIGNAL(enter()), this, SLOT(itemAyaEntered()));
+     connect(item, SIGNAL(leave()), this, SLOT(itemAyaLived()));
+       }
+    //-------------ازرار الصفحة اليسرى
+     xold=430;
+     yold=60;
+    for (int r=0;r <countLeft+1 ;r++){
+        itemIndex++;
+        QString txt=lineLeft.section("|",r,r).trimmed();
+  QString id =txt.section(",",0,0).trimmed();
+        int mx =txt.section(",",1,1).trimmed().toInt();
+        int my =txt.section(",",2,2).trimmed().toInt();
+       int height=my-yold;
+       Button *item = new Button(QPixmap());
+      buttons << item;
+         QPixmap pix(updatePixSelect(height+40,mx-14,xold-14,0,itemIndex));
+item->setPixmap(pix);
+
+        m_scene->addItem(item);
+
+       item->setGeometry(QRectF(40,yold-14,pix.width(),pix.height()-4));
+        item->setCursor(Qt::PointingHandCursor);
+  item->setData(0,id);
+item->setOpacity(0.01);
+        xold=mx-4;
+        yold=my;
+     connect(item, SIGNAL(release()), this, SLOT(goAyaSelected()));
+     connect(item, SIGNAL(enter()), this, SLOT(itemAyaEntered()));
+       connect(item, SIGNAL(leave()), this, SLOT(itemAyaLived()));
+    }
+
+    //--------------------------------------------------------old-------------------------
+    //رسم ازرار على الايات
+//    QString lineLeft=database->myListSafhat->at(m_curentSafhaLeft);
+//    QString lineRight=database->myListSafhat->at(m_curentSafhaRight);
+
+//    int countRight=lineRight.count("|");
+//    int countLeft=lineLeft.count("|");
+
+//    QPixmap mypix(28,28);
+//    mypix.fill(Qt::transparent);
+////     updatePixSelect(hight,x1,x2);
+
+// //   int height=0;
+//    //--------------ازرار الصفحة اليمنى
+
+// for (int r=0;r <countRight+1 ;r++){
+//     QString txt=lineRight.section("|",r,r).trimmed();
+//     QString id =txt.section(",",0,0).trimmed();
+//     int mx =txt.section(",",1,1).trimmed().toInt();
+//     int my =txt.section(",",2,2).trimmed().toInt();
+//     //        mx=(mx*90)/100;
+//     //        my=(my*90)/100;
+//     Pixmap *item = new Pixmap(mypix);
+//     items << item;
+//     m_scene->addItem(item);
+//     item->setGeometry(QRectF((m_pWith+mx)-14,my-14,28,28));
+//     item->setCursor(Qt::PointingHandCursor);
+//     item->setData(0,id);
+//     connect(item, SIGNAL(release()), this, SLOT(goAyaSelected()));
+// }
+//    //-------------ازرار الصفحة اليسرى
+//    for (int r=0;r <countLeft+1 ;r++){
+//        QString txt=lineLeft.section("|",r,r).trimmed();
+//        QString id =txt.section(",",0,0).trimmed();
+//        int mx =txt.section(",",1,1).trimmed().toInt();
+//        int my =txt.section(",",2,2).trimmed().toInt();
+//        //mx=(mx*90)/100;
+//        //my=(my*90)/100;
+//        Pixmap *item = new Pixmap(mypix);
+//        items << item;
+//        m_scene->addItem(item);
+//        item->setGeometry(QRectF(mx-14,my-14,28,28));
+//        item->setCursor(Qt::PointingHandCursor);
+//        item->setData(0,id);
+//        connect(item, SIGNAL(release()), this, SLOT(goAyaSelected()));
+//    }
+
+
+    QString pixRight=m_appPath+"/images/"+m_curentRiwaya+"/"+QString::number(m_curentSafhaRight)+".png";
+    QString pixLeft=m_appPath+"/images/"+m_curentRiwaya+"/"+QString::number(m_curentSafhaLeft)+".png";
+
+
+        if (m_curentSafha<3){
+            pageRight->setPixmap(pixRight);
+            pageLeft->setPixmap(pixLeft);
+        } else{
+            pageRight->setPixmap(disignePage(pixRight));
+            pageLeft->setPixmap(disignePage(pixLeft));
+        }
+
+
+}
+
+void MainWindow::goAyaSelected()
+{
+    Button *currentItem= qobject_cast<Button *>(sender());
+    int pos=currentItem->data(0).toInt();
+    setCurentPos(pos);
+}
+
+//------------------------move left to right----------------------
+
+void MainWindow::goNextEenter( )
+{
+    m_difer=15;
+    //   اعطاء صورة مطوية عند ادخال المؤشر للحافة اليسرى ووضعها على الاحداثية س=0 ع=0
+    picMoved->setPixmap(QPixmap(":/img/ply.png"));
+    picMoved->setPos(0,0);
+}
+
+void MainWindow::goNextLeave()
+{
+     //   اعطاء صورة شفافة عند اخراج المؤشر المؤشر من للحافة اليسرى
+    QPixmap pix(0,0);
+    pix.fill(Qt::transparent);
+    picMoved->setPixmap(pix);
+
+}
+
+void MainWindow::goNextPrissed( )
+{
+     if (m_animEnabled==false){
+          on_actionNextPage_triggered();
+         return;
+     }
+     //اعلام البرنامج ببداية السحب
+    m_bLeft=true;
+    desableHifdhPage();
+    itemSelection->setVisible(false);
+    panelPopup->setVisible(false);
+
+//جلب الصورة اليمنى واليسرى
+    QString pixRight=m_appPath+"/images/"+m_curentRiwaya+"/"+QString::number(m_curentSafhaLeft+1)+".png";
+    QString pixLeft=m_appPath+"/images/"+m_curentRiwaya+"/"+QString::number(m_curentSafhaLeft+2)+".png";
+
+    m_pixRigtMoved=(disignePage(pixRight));
+    m_pixLeftMoved=(   disignePage(pixLeft));
+
+}
+
+void MainWindow::goNextRelease( )
+{
+//اعلام البرنامج بنهاية السحب عند افلات المؤشر
+    m_bLeft=false;
+    itemSelection->setVisible(true);
+     panelPopup->setVisible(m_showPopup);
+        emit popupVisible(m_showPopup);
+
+    if(m_difer<150)
+        return;
+
+    QString mtxt=database->myListSafhat->at(m_curentSafhaLeft+1);
+    m_id=mtxt.section(",",0,0).trimmed().toInt();
+    setCurentPos(m_id);
+
+}
+
+void MainWindow::goNextMoved( )
+{
+    //عند السحب
+    if (m_bLeft==true){
+        int tpos=this->pos().x();
+        if(this->isMaximized()||this->isFullScreen())
+            tpos=0;
+        int w=(ui->graphicsView->width()/2)-m_pWith;
+        if (w<0)
+            w=0;
+        //معرفة موضع المؤشر
+        int    wx = QCursor::pos().x()-tpos-w;
+        if (wx>900)
+            return;
+        m_difer=wx/2;
+        moveLeftToRight();
+    }
+}
+
+void MainWindow::moveLeftToRight()
+{
+// الرسم بعد تلقي الاشارة بتغير موضع الماوس
+    QPixmap   pix1(m_difer*2,m_pHieght);
+    QPainter p;
+    p.begin(&pix1);
+   //اقتطاع الصورة ورسمها على حاوي الرسم
+    p.drawPixmap(0,0,m_difer,m_pHieght,m_pixLeftMoved,0,0,m_difer,m_pHieght);
+    p.drawPixmap(m_difer,0,m_difer,m_pHieght,m_pixRigtMoved,m_pWith-m_difer,0,m_difer,m_pHieght);
+    p.setPen(QColor(128,128,128,180));
+    p.drawPixmap(m_difer-25,0,80,m_pHieght,QPixmap(":/img/reflet.png"));
+    p.drawLine((m_difer*2)-1,0,(m_difer*2)-1,m_pHieght);
+    p.end();
+    picMoved->setPixmap(pix1);
+}
+
+//-----------------go right to left---------------------------
+void MainWindow::goPrevEenter()
+{
+    if(m_curentSafhaRight==1)
+        return;
+
+    picMoved->setPixmap(QPixmap(":/img/plyR.png"));
+    picMoved->setPos((m_pWith*2)-29,0);
+
+}
+
+void MainWindow::goPrevLeave()
+{
+
+    QPixmap pix(0,0);
+    pix.fill(Qt::transparent);
+    picMoved->setPixmap(pix);
+
+}
+
+void MainWindow::goPrevPrissed( )
+{
+    if (m_animEnabled==false){
+         on_actionPrevPage_triggered();
+        return;
+    }
+      if(m_curentSafhaRight>1){
+           m_bRight=true;
+    desableHifdhPage();
+           itemSelection->setVisible(false);
+           panelPopup->setVisible(false);
+
+           QString pixRight=m_appPath+"/images/"+m_curentRiwaya+"/"+QString::number(m_curentSafhaRight-2)+".png";
+           QString pixLeft=m_appPath+"/images/"+m_curentRiwaya+"/"+QString::number(m_curentSafhaRight-1)+".png";
+
+
+           m_pixRigtMoved=( disignePage(pixRight));
+           m_pixLeftMoved=( disignePage(pixLeft));
+     }
+
+
+}
+
+void MainWindow::goPrevRelease( )
+{
+
+    m_bRight=false;
+      panelPopup->setVisible(m_showPopup);
+      itemSelection->setVisible(true);
+      emit popupVisible(m_showPopup);
+    if(m_difer<300)
+        return;
+
+    QString mtxt=database->myListSafhat->at(m_curentSafhaRight-1);
+    m_id=mtxt.section(",",0,0).trimmed().toInt();
+    setCurentPos(m_id);
+}
+
+void MainWindow::goPrevMoved()
+{
+
+    if (m_bRight==true){
+        picMoved->setPos(0,0);
+        int tpos=this->pos().x();
+        if(this->isMaximized()||this->isFullScreen())
+            tpos=0;
+        int w=(ui->graphicsView->width()/2)-(m_pWith-10);
+        if (w<0)
+            w=0;
+        int    wx = QCursor::pos().x()-tpos-w;
+        if (wx<40)
+            return;
+        m_difer=912-wx;
+        moveRightToLeft();
+    }
+}
+
+
+void MainWindow::moveRightToLeft()
+{
+
+   int with=m_pWith*2;
+
+    QPixmap   pix1(with,m_pHieght);
+    pix1.fill(Qt::transparent);
+    QPainter p;
+    p.begin(&pix1);
+    p.drawPixmap(with-(m_difer),0,m_difer/2,m_pHieght,m_pixLeftMoved,0,0,m_difer/2,m_pHieght);
+    p.drawPixmap(with-(m_difer/2),0,m_difer/2,m_pHieght,m_pixRigtMoved,m_pWith-(m_difer/2),0,m_difer/2,m_pHieght);
+    p.setPen(QColor(128,128,128,200));
+    p.drawPixmap((with-(m_difer/2))-52,0,80,m_pHieght,QPixmap(":/img/refletRight.png"));
+    p.drawLine(with-(m_difer),0,with-(m_difer),m_pHieght);
+    p.end();
+    picMoved->setPixmap(pix1);
+}
+
+//-------------------------go page and pos--------------------
+void MainWindow::goSura(int index)
+{
+    // i/nt idx=comboSura->currentIndex();
+    QVariant txt=comboSura->itemData(index);
+    QString pos=txt.toString().section(",",0,0);
+    setCurentPos(pos.toInt());
+}
+
+void MainWindow::goAya()
+{
+       int idx=comboSura->currentIndex();
+       QVariant txt=comboSura->itemData(idx);
+       QString pos=txt.toString().section(",",0,0);
+       setCurentPos(pos.toInt()+spinAya->value()-1);
+}
+
+void MainWindow::goJozaa()
+{
+    if(spinJozaa->value()==m_jozaa)
+        return;
+     // qDebug()<<"spinjozaa :" +QString::number(m_jozaa);
+    if( database->myListJozaa->count()>0){
+  int idx=  database->myListJozaa->at(spinJozaa->value()-1);
+   setCurentPos(idx);
+    }
+}
+
+void MainWindow::goHizb()
+{
+    if(spinHizb->value()==m_hizb)
+        return;
+    //qDebug()<<"spinhizb :" +QString::number(m_hizb);
+    if( database->myListJozaa->count()>0){
+        int idx=  database->myListHizb->at(spinHizb->value()-1);
+        setCurentPos(idx);
+    }
+}
+
+void MainWindow::goPage()
+{
+    if(spinSafha->value()==m_curentSafha)
+        return;
+
+    QString mtxt=database->myListSafhat->at(spinSafha->value());
+    int id=mtxt.section(",",0,0).trimmed().toInt();
+     setCurentPos(id);
+}
+void MainWindow::setPage(int page)
+{
+      if(page==m_curentSafha)
+return;
+
+      QString mtxt=database->myListSafhat->at(page);
+      int id=mtxt.section(",",0,0).trimmed().toInt();
+       setCurentPos(id);
+}
+
+void MainWindow::setSora(int sora)
+{
+    if(sora>114||sora <1){
+     //     qDebug()<<"sura :"+QString::number(sora)+" no existe";
+        return ;
+    }
+     int i=database->myListSura->at(sora-1);
+    setCurentPos(i);
+
+}
+
+void MainWindow::setJozaa(int jozaa)
+{
+    if (jozaa>30||jozaa<1){
+    //    qDebug()<<"jozaa :"+QString::number(jozaa)+" no existe";
+        return ;
+    }
+    int i=database->myListJozaa->at(jozaa-1);
+         setCurentPos(i);
+
+}
+
+void MainWindow::setHizb(int hizb)
+{
+    if (hizb>60||hizb<1){
+      //    qDebug()<<"hizb :"+QString::number(hizb)+" no existe";
+        return ;
+    }
+    int i=database->myListHizb->at(hizb-1);
+         setCurentPos(i);
+
+}
+
+void MainWindow::setAya(int sora,int aya)
+{
+    if(sora>114||sora <1){
+      //   qDebug()<<"sura :"+QString::number(sora)+" no existe";
+        return ;
+    }
+     int i=database->myListSura->at(sora-1);
+     QVariant txt=comboSura->itemData(sora-1);
+     QString max=txt.toString().section(",",1,1);
+     if(aya>max.toInt()||aya <1){
+        //  qDebug()<<"aya :"+QString::number(aya)+" no existe";
+           setCurentPos(i);
+         return ;
+     }
+      setCurentPos(i+aya-1);
+
+}
+
+void MainWindow::setSpinAyaMaximum(int index)
+{
+
+    QVariant txt=comboSura->itemData(index);
+
+    QString i =txt.toString().section(",",1,1);
+    spinAya->setMaximum(i.toInt());
+    spinAya->setMinimum(1);
+
+}
+
+//-------------------------phonon-----------------------------------------------
+void MainWindow::stateChanged(Phonon::State newstate, Phonon::State oldstate)
+{
+    Q_UNUSED(oldstate);
+
+    switch (newstate) {
+    case Phonon::ErrorState:
+        if (m_MediaObject.errorType() == Phonon::FatalError) {
+            // ui->actionPlayPause->setEnabled(false);
+            m_MediaObject.clearQueue();
+            m_MediaObject.stop();
+        } else {
+            m_MediaObject.pause();
+        }
+        break;
+
+    case Phonon::StoppedState:
+        ui->actionPlayPause->setIcon(playIcon);
+        isPlay=false;
+        break;
+
+    case Phonon::LoadingState:
+        break;
+
+    case Phonon::BufferingState:
+        break;
+
+    case Phonon::PausedState:
+        ui->actionPlayPause->setIcon(playIcon);
+        if (m_MediaObject.currentSource().type() != Phonon::MediaSource::Invalid){
+            ui->actionPlayPause->setEnabled(true);
+        } else {
+            ui->actionPlayPause->setEnabled(false);
+        }
+        break;
+
+    case Phonon::PlayingState:
+
+        ui->actionPlayPause->setEnabled(true);
+        ui->actionPlayPause->setIcon(pauseIcon);
+        isPlay=true;
+        break;
+    }
+
+}
+
+void MainWindow::chargeLastAndFirstAya()
+{
+    if(m_autoRepeatPage==true){
+    QString  txt=   database->myListSafhat->at(m_curentSafha);
+     int i=  txt.count("|");
+      m_repeatAyaFirst=txt.section(",",0,0).trimmed().toInt();
+      QString lastTxt=txt.section("|",i,i).trimmed();
+        m_repeatAyaLast=lastTxt.section(",",0,0).trimmed().toInt();
+
+    }else if (m_autoRepeatSura==true){
+        int sura=m_sura-1;
+       m_repeatAyaFirst=database-> myListSura->at(sura);
+       m_repeatAyaLast=database-> myListSura->at(sura+1)-1;
+       if (m_repeatAyaLast==-1)
+           m_repeatAyaLast=6236;
+    }
+
+}
+
+void MainWindow::mediaFinished()
+{
+    if(m_plaOne==true){
+        m_MediaObject.stop();
+        m_plaOne=false;
+        return;
+    }
+    if(m_autoPlayNext==false){
+
+        //تكرار الاية
+        if (m_autoRepeatOne==true){
+            if (m_isRepeatNumber==true){
+                if(m_numPlayed>=m_repeatNumber){
+                    m_numPlayed=1;
+
+                    setCurentPos(m_id+1);
+                    mediaPlay();
+                      return;
+                }
+            }
+            m_MediaObject.setCurrentSource(m_MediaObject.currentSource());
+            m_MediaObject.seek(0);
+            m_MediaObject.play();
+            m_numPlayed++;
+            //   qDebug()<<numRepeat;
+            return;
+        }
+        // تكرار الصفحة او تكرار السورة
+        if (m_autoRepeatPage==true||m_autoRepeatSura==true||m_autoRepeatFromTo){
+            if(m_id>=m_repeatAyaLast){
+                if (m_isRepeatNumber==true){
+                    if(m_numPlayed>=m_repeatNumber){
+                        m_numPlayed=1;
+                        setCurentPos(m_id+1);
+                    }else{
+                        setCurentPos(m_repeatAyaFirst);
+                        m_numPlayed++;
+                    }
+                }else{
+                    setCurentPos(m_repeatAyaFirst);
+                }
+            }else{
+                setCurentPos(m_id+1);
+            }
+            return;
+        }
+    }
+    //قراءة متتالية
+
+    setCurentPos(m_id+1);
+
+
+}
+
+//-------------end phonon----------
+
+///------------------------------Actions---------------------------------------------
+void MainWindow::on_actionNextPage_triggered()
+{
+    if (m_curentSafha==604)
+        return;
+    QString mtxt=database->myListSafhat->at(m_curentSafha+1);
+     int id=mtxt.section(",",0,0).trimmed().toInt();
+     setCurentPos(id);
+}
+
+void MainWindow::on_actionPrevPage_triggered()
+{
+    if (m_curentSafha==1)
+        return;
+    QString mtxt=database->myListSafhat->at(m_curentSafha-1);
+   int id=mtxt.section(",",0,0).trimmed().toInt();
+    setCurentPos(id);
+}
+
+void MainWindow::on_actionNextSura_triggered()
+{
+    if(m_sura==114)
+        return;
+     int i=database->myListSura->at(m_sura);
+    setCurentPos(i);
+}
+
+void MainWindow::on_actionPrevSura_triggered()
+{
+    if(m_sura==1)
+        return;
+      int i=database->myListSura->at(m_sura-2);
+    setCurentPos(i);
+}
+
+void MainWindow::on_actionNextAya_triggered()
+{
+    if (m_id==6236)
+        return;
+     setCurentPos(m_id+1);
+}
+
+void MainWindow::on_actionPrevAya_triggered()
+{
+    if (m_id==1)
+            return;
+         setCurentPos(m_id-1);
+}
+
+void MainWindow::on_actionOptions_triggered()
+{
+
+    getOption(0,trUtf8("General Options"));
+
+}
+void MainWindow::on_actionRepeatOption_triggered()
+{
+     getOption(1,trUtf8("Repeat Options"));
+}
+void MainWindow::on_actionNavigation_toggled(bool arg1)
+{
+
+   //     openCloseNavigator(arg1);
+    ui->dockWidget->setVisible(arg1);
+}
+void MainWindow::fullScreen()
+{
+    if(m_fullIndex<0||m_fullIndex>myListSceen.count()-1)
+        m_fullAnimated=false;
+    if(this->isFullScreen()){
+        ui->toolBar->setVisible(m_standardTool);
+        ui->menuBar->setVisible(m_showMenu);
+
+        this->showNormal();
+        ui->graphicsView->setContextMenuPolicy(Qt::NoContextMenu);
+        ui->graphicsView->setScene(m_scene);
+        ui->graphicsView->setSceneRect(QRectF(0.0,0.0,912.0,672.0));
+        ui->graphicsView->updateSceneRect(QRectF(0.0,0.0,912.0,672.0));
+//        if(myListSceen.count()>0)
+//        sceenFullInterface->setAnimationEnabled(false);
+
+
+    }else{
+        int w=QApplication::desktop()->geometry().width();
+        int h=QApplication::desktop()->geometry().height();
+
+        if(m_fullAnimated==false){
+            ui->graphicsView->setSceneRect(QRectF(0.0,0.0,912.0,672.0));
+            ui->graphicsView->updateSceneRect(QRectF(0.0,0.0,912.0,672.0));
+            ui->graphicsView->setScene(m_scene);
+            this->showFullScreen();
+
+        }else  {
+            ui->toolBar->setVisible(m_standardTool);
+            ui->toolBarAodioEffect->setVisible(false);
+            ui->menuBar->setVisible(false);
+            this->showFullScreen();
+            ui->graphicsView->setSceneRect(QRectF(0.0,0.0,w,h));
+            ui->graphicsView->updateSceneRect(QRectF(0.0,0.0,w,h));
+            //     ui->graphicsView->setScene(scenfull);
+            ui->graphicsView->setContextMenuPolicy(Qt::CustomContextMenu);
+            //     scenfull->setBackgroundDir(m_fullScreenBgr);
+   setCurentPos(m_id);
+     if(myListSceen.count()>0){
+            sceenFullInterface->setGraphicSceen(ui->graphicsView);
+
+            sceenFullInterface->setAnimationEnabled(m_fullAnimEnable);
+}
+        }
+
+    }
+
+}
+
+void MainWindow::on_actionFullScreen_triggered()
+{
+   fullScreen();
+}
+
+void MainWindow::comboBoxSoraJozaa_currentIndexChanged(int index)
+{
+    if (index==0){
+        database-> treeChargeSoura(ui->treeWidgetIndex,true,comboSura,m_layouDir,m_sura-1);
+    }else{
+
+       database-> treeChargeJozaa(ui->treeWidgetIndex);
+    }
+}
+
+void MainWindow::treeWidgetIndex_itemActivated(QTreeWidgetItem *item, int )
+{
+    int id =item->text(1).toInt();
+
+    setCurentPos(id);
+}
+//-----------action phonon------------
+void MainWindow::on_actionPlayPause_triggered()
+{
+    if (m_MediaObject.state() == Phonon::PlayingState){
+        m_MediaObject.pause();
+        return;
+    }
+    mediaPlay();
+}
+
+void MainWindow::mediaPlay()
+{
+
+    QStringList filters(m_soundName+"*");//فلترة الاية حسب الاسم ولا تهم اللاحقة
+    if (m_MediaObject.currentTime() == m_MediaObject.totalTime())
+        m_MediaObject.seek(0);
+    //-----------البحث عن الاية حسب ما ادخله المستخدم
+    QDir dir(m_soundPath);
+    QStringList list=dir.entryList(filters,QDir::AllEntries|QDir::NoDotAndDotDot,QDir::Name);
+    QString curentAya ;
+    if (list.count()>0) curentAya = list.at(0);
+    QString fileName=m_soundPath+"/"+curentAya;
+    if(QFile::exists(fileName)){
+        qDebug()<<"this filename personalizer"+fileName;
+        if(m_MediaObject.currentSource().fileName()!=fileName){
+            m_MediaObject.clearQueue();
+            if (m_aya==1&&m_sura!=9&&m_sura!=1&&m_reciteBasmala==true){
+                m_MediaObject.setCurrentSource(QString(m_appPath+"/bismillah.mp3"));
+                m_MediaObject.enqueue(fileName);
+
+            }else{
+                m_MediaObject.setCurrentSource(fileName);
+            }
+        }
+        m_MediaObject.play();
+        return;
+    }
+
+    //-------usr/shar/elforkane/audio/recetername----البحث عن الاية في دليل البرنامج
+
+
+    QDir dirPath(m_appPath+"/"+m_soundPath);
+    QStringList listPath=dirPath.entryList(filters,QDir::AllEntries|QDir::NoDotAndDotDot,QDir::Name);
+    QString curentAyaPath ;
+    if (listPath.count()>0) curentAyaPath = listPath.at(0);
+    QString appFileName=m_appPath+"/"+m_soundPath+"/"+curentAyaPath;
+    if(QFile::exists(appFileName)){
+                qDebug()<<"this filename appFileName  : "+appFileName;
+        if(m_MediaObject.currentSource().fileName()!=appFileName){
+            m_MediaObject.clearQueue();
+            if (m_aya==1&&m_sura!=9&&m_sura!=1&&m_reciteBasmala==true){
+                m_MediaObject.setCurrentSource(QString(m_appPath+"/bismillah.mp3"));
+                m_MediaObject.enqueue(appFileName);
+
+            }else{
+                m_MediaObject.setCurrentSource(appFileName);
+            }
+        }
+        m_MediaObject.play();
+        return;
+    }
+
+    //-------home/user/.elforkane/audio/recetername----البحث عن الاية في دليل المستخدم
+
+    QDir dirUser(QDir::homePath()+"/.elforkane/"+m_soundPath);
+    QStringList listUser=dirUser.entryList(filters,QDir::AllEntries|QDir::NoDotAndDotDot,QDir::Name);
+    QString curentAyaUser ;
+    if (listUser.count()>0) curentAyaUser = listUser.at(0);
+
+    QString userFileName=QDir::homePath()+"/.elforkane/"+m_soundPath+"/"+curentAyaUser;
+    if(QFile::exists(userFileName)){
+       qDebug()<<"this filename userFileName  : "+userFileName;
+        if(m_MediaObject.currentSource().fileName()!=userFileName){
+            m_MediaObject.clearQueue();
+            if (m_aya==1&&m_sura!=9&&m_sura!=1&&m_reciteBasmala==true){
+                m_MediaObject.setCurrentSource(QString(m_appPath+"/bismillah.mp3"));
+                m_MediaObject.enqueue(userFileName);
+
+            }else{
+                m_MediaObject.setCurrentSource(userFileName);
+            }
+        }
+        m_MediaObject.play();
+        return;
+    }
+
+    //---------------------البحث في الانترنت
+
+
+    QUrl url(m_soundUrl+"/"+m_soundName+".mp3");
+
+    if(url.isValid()){
+        if(m_MediaObject.currentSource().url()!=url&&m_reciteBasmala==true){
+            m_MediaObject.clearQueue();
+            if (m_aya==1&&m_sura!=9&&m_sura!=1){
+                m_MediaObject.setCurrentSource(QString(m_appPath+"/bismillah.mp3"));
+                m_MediaObject.enqueue(url);
+
+            }else{
+                m_MediaObject.setCurrentSource(url);
+            }
+        }
+        m_MediaObject.play();
+    }
+
+
+
+    /*/-------------------------------
+    if(QFile::exists(fileName)){
+        if(m_MediaObject.currentSource().fileName()!=fileName){
+            m_MediaObject.clearQueue();
+            if (m_aya==1&&m_sura!=9&&m_sura!=1&&m_reciteBasmala==true){
+                m_MediaObject.setCurrentSource(QString(m_appPath+"/bismillah.mp3"));
+                m_MediaObject.enqueue(fileName);
+
+            }else{
+                m_MediaObject.setCurrentSource(fileName);
+            }
+        }
+        m_MediaObject.play();
+    }else if(QFile::exists(appFileName)){
+        if(m_MediaObject.currentSource().fileName()!=appFileName){
+            m_MediaObject.clearQueue();
+            if (m_aya==1&&m_sura!=9&&m_sura!=1&&m_reciteBasmala==true){
+                m_MediaObject.setCurrentSource(QString(m_appPath+"/bismillah.mp3"));
+                m_MediaObject.enqueue(appFileName);
+
+            }else{
+                m_MediaObject.setCurrentSource(appFileName);
+            }
+        }
+        m_MediaObject.play();
+    }else if(QFile::exists(userFileName)){
+        if(m_MediaObject.currentSource().fileName()!=userFileName){
+            m_MediaObject.clearQueue();
+            if (m_aya==1&&m_sura!=9&&m_sura!=1&&m_reciteBasmala==true){
+                m_MediaObject.setCurrentSource(QString(m_appPath+"/bismillah.mp3"));
+                m_MediaObject.enqueue(userFileName);
+
+            }else{
+                m_MediaObject.setCurrentSource(userFileName);
+            }
+        }
+        m_MediaObject.play();
+    }else{
+        if(url.isValid()){
+            if(m_MediaObject.currentSource().url()!=url&&m_reciteBasmala==true){
+                m_MediaObject.clearQueue();
+                if (m_aya==1&&m_sura!=9&&m_sura!=1){
+                    m_MediaObject.setCurrentSource(QString(m_appPath+"/bismillah.mp3"));
+                    m_MediaObject.enqueue(url);
+
+                }else{
+                    m_MediaObject.setCurrentSource(url);
+                }
+            }
+            m_MediaObject.play();
+        }
+    }
+
+    //   qDebug()<<"user = "+userFileName;
+
+    */
+}
+
+void MainWindow::on_actionStopMedia_triggered()
+{
+    m_MediaObject.stop();
+    isPlay=false;
+}
+
+
+//-----------التفاسير و التراجم------------
+void MainWindow::popup_toggled(bool checked)
+{
+    m_showPopup=checked;
+  emit popupVisible(checked);
+    panelPopup->setVisible(checked);
+   convertTextToHtm(database->getTranslation(m_id));
+}
+
+
+   void MainWindow::translationChanged()
+   {
+
+       QAction *action = qobject_cast<QAction *>(sender());
+       if (action){
+           QVariant data=action->data();
+           QString txt=action->text();
+           database->openDb(m_appPath+"/translat/"+data.toString());
+           convertTextToHtm(database->getTranslation(m_id));
+           labelTransTefsir->setText(txt);
+           m_showPopup=true;
+           emit popupVisible(true);
+           isTefsirPopup=false;
+           panelPopup->setVisible(true);
+
+           m_curTranslation=myListActionTrans.indexOf(action);
+
+       }
+   }
+   void MainWindow:: tefsirChanged()
+   {
+       QAction *action = qobject_cast<QAction *>(sender());
+       if (action){
+           QVariant data=action->data();
+           QString txt=action->text();
+           database->openDb(m_appPath+"/tafasir/"+data.toString());
+           convertTextToHtm(database->getTranslation(m_id));
+           labelTransTefsir->setText(txt);
+           m_showPopup=true;
+           emit popupVisible(true);
+           isTefsirPopup=true;
+           panelPopup->setVisible(true);
+
+       }
+   }
+
+   void MainWindow::txtQuran()
+   {
+         database->openDb(m_appPath+"/quran.db");
+          convertTextToHtm(database->getTranslation(m_id));
+          labelTransTefsir->setText(trUtf8("Quran txt"));
+          m_showPopup=true;
+          emit popupVisible(true);
+          isTefsirPopup=false;
+          panelPopup->setVisible(true);
+
+   }
+
+void MainWindow::comboBoxResiter_activated(int index)
+{
+    m_receter=index;
+    QString txt=comboBoxReciter-> itemData(index).toString();
+    m_soundPath=txt.section("|",0,0);
+    m_soundUrl=txt.section("|",1,1);
+  //  qDebug()<<"soundPath ="+m_soundPath;
+
+}
+
+void MainWindow::lineEditSearchTree_textChanged(const QString &arg1)
+{
+    if(arg1==trUtf8("Search"))
+        return;
+    database->searchInTreeview(ui->treeWidgetIndex,arg1,0);
+}
+
+void MainWindow::on_graphicsView_customContextMenuRequested(const QPoint )
+{
+    QMenu menu(this);
+    menu.addAction(ui->actionFullScreen);
+      menu.addAction(ui->actionEnableAnimFull);
+    menu.addSeparator();
+    menu.addMenu(ui->menu_edit);
+    menu.addMenu(ui->menuTranslation);
+     menu.addSeparator();
+    menu.addAction(ui->actionQuit);
+    menu.exec(QCursor::pos());
+}
+
+void MainWindow::hidePopup()
+{
+   actTansTefsir->setChecked(false);
+emit popupVisible(false);
+
+}
+
+
+void MainWindow::getOption(int tab,QString title)
+{
+    QList <QString >listRiwayatText;
+    QList <QString >listRiwayatData;
+    QDir dir;
+    listRiwayatText.append(trUtf8("Default hafs"));
+    listRiwayatData.append("default");
+    if(dir.exists(m_appPath+"/images/hafs")){
+        listRiwayatText.append(trUtf8("Riwayat hafs"));
+        listRiwayatData.append("hafs");
+    }
+    if(dir.exists(m_appPath+"/images/hafs-colors")){
+        listRiwayatText.append(trUtf8("Riwayat hafs by colors"));
+        listRiwayatData.append("hafs-colors");
+    }
+    if(dir.exists(m_appPath+"/images/warsh")){
+        listRiwayatText.append(trUtf8("Riwyat warsh"));
+        listRiwayatData.append("warsh");
+    }
+    if(dir.exists(m_appPath+"/images/warsh-colors")){
+        listRiwayatText.append(trUtf8("Riwayat warsh by colors"));
+        listRiwayatData.append("warsh-colors");
+    }
+
+    DialogOption *dlg=new DialogOption(this);
+
+    dlg->setAppPath(m_appPath);
+    //repeat settings
+    dlg->setAutoPlayNext(m_autoPlayNext);
+    dlg->setAutoRepeatOne(m_autoRepeatOne);
+    dlg->setAutoRepeatPage(m_autoRepeatPage);
+    dlg->setautoRepeatSura(m_autoRepeatSura);
+    dlg->setAutoRepeatFromTo(m_autoRepeatFromTo);
+    dlg->setNumberRepeats(m_repeatNumber);
+    dlg->setRepeatNumber(m_isRepeatNumber);
+    dlg->setRepeatAyaFirst(m_repeatAyaFirst);
+    dlg->setRepeatAyaLast(m_repeatAyaLast);
+    //generale settings
+
+    dlg->setShowMediaControl(m_showMediaControl);
+    dlg->setAnimEnabled(m_animEnabled);
+    dlg->setFitInView(m_fitInView);
+    dlg->setMinimizToTry(m_minimizToTry);
+    dlg->setTextInIcons(m_textIcon);
+    dlg->setCadrFolder(m_themeFolder);
+    dlg->setLng(m_lng);
+    dlg->setInfoDely(m_infoDely);
+    dlg->setSpinMax(spinAya->maximum());
+    dlg->setSelectColor(m_selectColor);
+    dlg->setShowMenu(m_showMenu);
+    dlg->setShowSelection(m_showSelection);
+    dlg->setshowStandardTool(m_standardTool);
+    dlg ->setReciteBasmala(m_reciteBasmala);
+    dlg->setFullSceenAnimated(m_fullAnimated);
+   //dlg->setFullBackgroundDir(m_fullScreenBgr);
+    dlg->setCurTab(tab);
+    dlg->setWindowTitle(title);
+    dlg->setListFullSceen(listSceenName,m_fullIndex);
+    dlg->listSceen=myListSceen;
+    //dlg->chargeSettings();
+dlg->setRiwayat(listRiwayatText,listRiwayatData,m_curentRiwaya);
+dlg->setCurentLocale(m_locale);
+if (dlg->exec() == QDialog::Accepted){
+    m_themeFolder=dlg->cadrFolder;
+    m_animEnabled=dlg->animEnabled;
+    m_fitInView=dlg->fitInView;
+    m_minimizToTry=dlg->minimizToTry;
+    m_textIcon=dlg->textInIcons;
+    m_infoDely=dlg->infoDely;
+    m_lng=dlg->lng;
+    m_selectColor=dlg->selectColor;
+    m_showMediaControl=dlg->showMediaControl;
+    m_autoRepeatFromTo=dlg->autoRepeatFromTo;
+    m_autoRepeatOne=dlg->autoRepeatOne;
+    m_autoRepeatPage=dlg->autoRepeatPage;
+    m_autoRepeatSura=dlg->autoRepeatSura;
+    m_autoPlayNext=dlg->autoPlayNext;
+    m_repeatNumber=dlg->numberRepeats;
+    m_isRepeatNumber=dlg->isRepeatNumber;
+    m_showMenu=dlg->showMenu;
+    m_standardTool=dlg->showStandardTool;
+    m_showSelection=dlg->showSelection;
+    m_reciteBasmala=dlg->reciteBasmala;
+    ui->menuBar->setVisible(m_showMenu);
+    btnMenu->setVisible(!m_showMenu);
+    if(m_showMenu==false){
+       // ui->toolBar->addWidget(btnMenu);
+        ui->toolBar->addWidget(btnMenu);
+    }else{
+        btnMenu->setParent(this);
+
+    }
+
+    //   btnMenu->setHidden(m_showMenu);
+    m_fullAnimated=dlg->fullAnimated;
+    m_fullIndex=dlg->fullIndex;
+    m_curentRiwaya=dlg->riwayat;
+    m_locale=dlg->localeIndex;
+    database-> chargeCsvs(m_curentRiwaya);
+
+
+    if(m_fullIndex<0)m_fullIndex=0;
+    if(myListSceen.count()>0)
+        sceenFullInterface=myListSceen.at(m_fullIndex);
+    locateThemePath();
+    newPages();
+    //  itemSelection->setPixmap( updatePixSelect(150,382,382));
+    setCurentPos(m_id);
+    this->resize(this->size().width()+1,this->size().height()+1);
+
+    trayIcon->setVisible(m_minimizToTry);
+    if(m_textIcon==true){
+        ui->toolBar->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
+    }else{
+        ui->toolBar->setToolButtonStyle(Qt::ToolButtonIconOnly);
+    }
+
+    if (dlg->autoRepeatFromTo==true){
+        int sura=database-> myListSura->at(m_sura-1);
+        m_repeatAyaFirst=sura+dlg->repeatAyaFirst-1;
+        m_repeatAyaLast=sura+dlg->repeatAyaLast-1;
+        m_numPlayed=1;
+    }
+
+}
+}
+
+void MainWindow::on_actionAddReceter_triggered()
+{
+    DialogAddReciter *dlg=new DialogAddReciter(this);
+    dlg->setWindowTitle(trUtf8("Add Receter"));
+    if (dlg->exec() == QDialog::Accepted){
+       comboBoxReciter->addItem(dlg->reciterName,dlg->dataName);
+         }
+
+}
+void MainWindow::editReciter()
+{
+    int index=comboBoxReciter->currentIndex();
+          DialogAddReciter *dlg=new DialogAddReciter(this);
+          dlg->setWindowTitle(trUtf8("Edit Receter"));
+          dlg->setReceterName(comboBoxReciter->currentText());
+          dlg->setDirName(m_soundPath);
+          dlg->setUrlName(m_soundUrl);
+          if (dlg->exec() == QDialog::Accepted){
+             comboBoxReciter->setItemText(index,dlg->reciterName);
+             comboBoxReciter->setItemData(index,dlg->dataName);
+             m_soundPath=dlg->dataName.section("|",0,0);
+             m_soundUrl=dlg->dataName.section("|",1,1);
+           }
+}
+
+void MainWindow::on_actionEditeReceter_triggered()
+{
+    editReciter();
+}
+//حذف المقرئ المحدد
+void MainWindow::on_actionRemoveReceter_triggered()
+{
+    QMessageBox msgBox;
+    //msgBox.setText("The document has been modified.");
+    msgBox.setIcon(QMessageBox::Question);
+    msgBox.setText(QString(trUtf8("Do you want to delete %1 ?")).arg(comboBoxReciter->currentText()));
+    msgBox.setStandardButtons(QMessageBox::Yes | QMessageBox::No );
+    msgBox.setDefaultButton(QMessageBox::No);
+    int ret = msgBox.exec();
+    switch (ret) {
+    case QMessageBox::Yes:
+        comboBoxReciter->removeItem(comboBoxReciter->currentIndex());
+        break;
+    case QMessageBox::No:
+        // Don't Delete was clicked
+        break;
+
+    default:
+        // should never be reached
+        break;
+    }
+
+}
+
+
+void MainWindow::on_actionAbout_triggered()
+{
+    DialogAbout *dlg=new DialogAbout(this);
+    dlg->exec() ;
+}
+
+void MainWindow::on_actionQuranText_triggered()
+{
+    txtQuran();
+
+
+}
+
+void MainWindow::on_actionRceterEdite_triggered()
+{
+    editReciter();
+}
+
+
+
+bool MainWindow::eventFilter(QObject *obj, QEvent *event)
+ {
+
+ if (obj ==  ui->lineEditSearchTree) {
+         if (event->type() == QEvent::FocusIn && ui->lineEditSearchTree->text()==trUtf8("Search")) {
+             ui->lineEditSearchTree->setText("");
+             ui->lineEditSearchTree->setStyleSheet("");
+             return true;
+         }else if (event->type() == QEvent::FocusOut && ui->lineEditSearchTree->text().isEmpty()){
+
+                ui->lineEditSearchTree->setText(trUtf8("Search"));
+                  ui->lineEditSearchTree->setStyleSheet("QLineEdit {font: italic;color: rgb(115, 115, 115);}");
+               return true;
+         }
+
+}
+ return QMainWindow::eventFilter(obj, event);
+ }
+
+void MainWindow::on_toolButtonGoSearch_clicked()
+{
+    if(ui->lineEditSearch->text().isEmpty())
+        return;
+
+
+    int option;
+    if(ui->radioButtonSearch->isChecked())
+        option=0;
+    if(ui->radioButtonSearchFirst->isChecked())
+        option=1;
+    if(ui->radioButtonSearchLast->isChecked())
+        option=2;
+    if(ui->radioButtonAdvensed->isChecked())
+        option=3;
+    if (option==3&&ui->lineEditSearchAnd->text().isEmpty())
+        return;
+    QString orAnd;
+    if(ui->checkBoxAnd->isChecked()==true){
+        orAnd="and";
+   }else if(ui->checkBoxOr->isChecked()==true){
+        orAnd="or";
+    }
+    database->dataSearchString(ui->treeWidgetSearch,ui->lineEditSearch->text(),ui->lineEditSearchAnd->text(),orAnd,option);
+}
+
+
+
+void MainWindow::on_lineEditSearch_returnPressed()
+{
+    on_toolButtonGoSearch_clicked();
+}
+
+void MainWindow::on_lineEditSearchAnd_returnPressed()
+{
+      on_toolButtonGoSearch_clicked();
+}
+
+void MainWindow::on_treeWidgetSearch_itemActivated(QTreeWidgetItem *item, int )
+{
+    int id =item->text(3).toInt();
+    setCurentPos(id);
+}
+
+
+
+void MainWindow::on_actionEnableAnimFull_toggled(bool arg1)
+{
+      m_fullAnimEnable=arg1;
+      if(this->isFullScreen())
+    sceenFullInterface->setAnimationEnabled(arg1);
+
+
+}
+
+void MainWindow::loadPlugin()
+{
+    QDir pluginsDir(qApp->applicationDirPath());
+#if defined(Q_OS_WIN)
+
+    pluginsDir.cdUp();
+#elif defined(Q_OS_MAC)
+    if (pluginsDir.dirName() == "MacOS") {
+        pluginsDir.cdUp();
+        pluginsDir.cdUp();
+        pluginsDir.cdUp();
+    }
+#else
+    pluginsDir.cdUp();
+    qDebug()<<pluginsDir;
+#endif
+    if(QFile::exists(m_appPath+"/plugins")){
+      pluginsDir.cd(m_appPath+"/plugins");
+   }else  if(QFile::exists(pluginsDir.path()+"/lib/elforkane/plugins")){
+         pluginsDir.cd("lib/elforkane/plugins");
+    }else if(QFile::exists(pluginsDir.path()+"/lib64/elforkane/plugins")){
+         pluginsDir.cd("lib64/elforkane/plugins");
+    }
+//       qDebug()<<"this plugin m_appPath  :"+m_appPath+"/plugins";
+//    qDebug()<<"this plugin lib  :"+pluginsDir.path()+"/lib/elforkane/plugins";
+//      qDebug()<<"this plugin lib64  :"+pluginsDir.path()+"/lib64/elforkane/plugins";
+     qDebug()<<"plugins path  :"+pluginsDir.path();
+
+    foreach (QString fileName, pluginsDir.entryList(QDir::Files)) {
+        QPluginLoader pluginLoader(pluginsDir.absoluteFilePath(fileName));
+        QObject *plugin = pluginLoader.instance();
+
+        if (plugin) {
+            sceenFullInterface    = qobject_cast<SceenFullInterface *>(plugin);
+            if (sceenFullInterface){
+                myListSceen.append(qobject_cast<SceenFullInterface *>(plugin));
+                listSceenName.append(plugin->objectName());
+
+            }
+        }
+    }
+int count=myListSceen.count();
+    if(count<1||m_fullIndex<0||m_fullIndex>count-1){
+        m_fullAnimated=false;
+        m_fullIndex=0;
+    }else{
+         sceenFullInterface=myListSceen.at(m_fullIndex);
+    }
+}
+
+//void MainWindow::on_toolButton_clicked()
+//{
+//database->chargeTree(ui->treeWidgetIndex);
+//}
+
+//void MainWindow::on_pushButton_clicked()
+//{
+//       QString dataAyat=m_appPath+"/quran.xml";
+//       QFile fileAyat(dataAyat);
+//       if (!fileAyat.open(QFile::WriteOnly)){
+//         return ;
+//           qDebug()<<m_appPath+"/quran.xml";
+//       }
+//       QTextStream out(&fileAyat);
+//       QString line;
+
+//       out << "<?xml version='1.0' encoding='UTF-8'?>\n";
+//       out <<"<Departments>\n";
+
+//       int topCount=ui->treeWidgetIndex->topLevelItemCount();
+//       for (int i=0;i<topCount;i++){
+//           QTreeWidgetItem *item=ui->treeWidgetIndex->topLevelItem(i);
+//           QString txtSura=item->text(0);
+//           QString txtSuraEn=item->data(0,1).toString();
+//           QString txt= "<Department Name=\""+txtSura+"\" Ename=\""+txtSuraEn+"\">\n";
+//           out <<txt;
+//           int itemCount=item->childCount();
+//           for(int r=0;r<itemCount;r++){
+//                 QTreeWidgetItem *items=item->child(r);
+//               QString txtAya=items->text(0);
+//             //   <Item ID="1_1" >1- بسم الله الرحمن الرحيم</Item>
+//     QString txt= "<Item> "+txtAya+" </Item>\n";
+//               out <<txt;
+//           }
+//     out<<"</Department>\n";
+//       }
+//       out<< "</Departments>";
+//}
+//---------------------phonone effect--------------------------------
+void MainWindow::chargeAvailableAudioEffects()
+{
+     //اضافة المؤثرات الصوتية اذا كانت موجودة
+    audioEffectsCombo->addItem(trUtf8("<no effect>"));
+    QList<Phonon::Effect *> currEffects = m_audioOutputPath.effects();
+    Phonon::Effect *currEffect = currEffects.size() ? currEffects[0] : 0;
+    QList<Phonon::EffectDescription> availableEffects = Phonon::BackendCapabilities::availableAudioEffects();
+    for (int i=0; i<availableEffects.size(); i++){
+        audioEffectsCombo->addItem(availableEffects[i].name());
+        if (currEffect && availableEffects[i] == currEffect->description())
+            audioEffectsCombo->setCurrentIndex(i+1);
+    }
+     audioEffectsCombo->addItem(trUtf8("<no effect2>"));
+    connect(effectAction, SIGNAL(triggered()), this, SLOT(configureEffect()));
+    connect(audioEffectsCombo, SIGNAL(currentIndexChanged(int)), this, SLOT(effectChanged()));
+
+}
+
+void MainWindow::configureEffect()
+{
+    if (!nextEffect)
+        return;
+
+
+    const QList<Phonon::EffectDescription> availableEffects = Phonon::BackendCapabilities::availableAudioEffects();
+    if (audioEffectsCombo->currentIndex() > 0) {
+        Phonon::EffectDescription chosenEffect = availableEffects[audioEffectsCombo->currentIndex() - 1];
+        //لنشاء نافذة خيارات المؤثرات الصوتية
+        QDialog effectDialog;
+        effectDialog.setWindowTitle(trUtf8("Configure effect"));
+        //انشاء محتوى النافذة
+        QVBoxLayout *topLayoutsetting = new QVBoxLayout(&effectDialog);
+        QLabel *description = new QLabel(trUtf8("<b>Description:</b><br>") + chosenEffect.description(), &effectDialog);
+        description->setWordWrap(true);
+        topLayoutsetting->addWidget(description);
+        //المحتوى القابل للتحجيم
+        QScrollArea *scrollArea = new QScrollArea(&effectDialog);
+        topLayoutsetting->addWidget(scrollArea);
+        //قائمة باعدادات المؤثر المحدد
+        QVariantList savedParamValues;
+        foreach(Phonon::EffectParameter param, nextEffect->parameters()) {
+            savedParamValues << nextEffect->parameterValue(param);
+        }
+        //اضافة اداة اعدادات المؤثر
+        QWidget *scrollWidget = new Phonon::EffectWidget(nextEffect);
+        scrollWidget->setMinimumWidth(320);
+        scrollWidget->setContentsMargins(10, 10, 10,10);
+        scrollArea->setWidget(scrollWidget);
+        //ازرار موافق والغاء
+        QDialogButtonBox *bbox = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, Qt::Horizontal, &effectDialog);
+        connect(bbox->button(QDialogButtonBox::Ok), SIGNAL(clicked()), &effectDialog, SLOT(accept()));
+        connect(bbox->button(QDialogButtonBox::Cancel), SIGNAL(clicked()), &effectDialog, SLOT(reject()));
+        topLayoutsetting->addWidget(bbox);
+        //تنفيذ النافذة
+        effectDialog.exec();
+        //اذا كان التنفيذ بالموافقة
+        if (effectDialog.result() != QDialog::Accepted) {
+            //we need to restore the parameters values
+            int currentIndex = 0;
+            foreach(Phonon::EffectParameter param, nextEffect->parameters()) {
+                nextEffect->setParameterValue(param, savedParamValues.at(currentIndex++));
+            }
+
+        }
+    }
+}
+
+void MainWindow::effectChanged()
+{
+
+    int currentIndex = audioEffectsCombo->currentIndex();
+
+    if (currentIndex) {
+        QList<Phonon::EffectDescription> availableEffects = Phonon::BackendCapabilities::availableAudioEffects();
+if (currentIndex>availableEffects.count()){
+      effectAction->setEnabled(false);
+      return;
+}
+        Phonon::EffectDescription chosenEffect = availableEffects[currentIndex - 1];
+
+
+        // Deleting the running effect will stop playback, it is deleted when removed from path
+//        if (nextEffect && !(currentEffect && (currentEffect->description().name() == nextEffect->description().name())))
+//            delete nextEffect;
+        if(chosenEffect.isValid()){
+        nextEffect = new Phonon::Effect(chosenEffect);
+        }else{
+            return;
+        }
+    }
+
+
+    QList<Phonon::Effect *> currEffects = m_audioOutputPath.effects();
+
+    if (audioEffectsCombo->currentIndex() > 0){
+        Phonon::Effect *currentEffect = currEffects.size() ? currEffects[0] : 0;
+        if (!currentEffect || currentEffect->description() != nextEffect->description()){
+            foreach(Phonon::Effect *effect, currEffects) {
+                m_audioOutputPath.removeEffect(effect);
+                delete effect;
+            }
+            m_audioOutputPath.insertEffect(nextEffect);
+        }
+    } else {
+        foreach(Phonon::Effect *effect, currEffects) {
+            m_audioOutputPath.removeEffect(effect);
+            delete effect;
+            nextEffect = 0;
+        }
+    }
+    effectAction->setEnabled(currentIndex);
+
+
+}
+
+
+void MainWindow::on_actionDlg_triggered()
+{
+
+
+
+
+
+}
+
+void MainWindow::itemHifdhCliked()
+{
+    Button *currentItem= qobject_cast<Button *>(sender());
+        currentItem->setOpacity(0.0 );
+
+}
+
+void MainWindow::itemHifdhEntered()
+{
+
+     Button *currentItem= qobject_cast<Button *>(sender());
+     if(currentItem->opacity()==0.0)
+         return;
+
+
+     QPropertyAnimation * anim = new QPropertyAnimation(currentItem, "opacity");
+
+       //  anim->setStartValue(QPointF(x, -(ptop+50)));
+        anim->setEndValue(0.3);
+       anim->setEasingCurve(QEasingCurve::InQuint);
+       anim->setDuration(1000);
+       anim->start();
+}
+
+void MainWindow::itemHifdhLived()
+{
+
+     Button *currentItem= qobject_cast<Button *>(sender());
+     if(currentItem->opacity()==0.0)
+         return;
+
+     QPropertyAnimation * anim = new QPropertyAnimation(currentItem, "opacity");
+
+       //anim->setStartValue(QPointF(x, -(ptop+50)));
+         anim->setEndValue(1.0);
+      //   anim->setEasingCurve(QEasingCurve::OutBounce);
+         anim->setDuration(750);
+         anim->start();
+}
+void MainWindow::itemAyaEntered()
+{
+      Button *currentItem= qobject_cast<Button *>(sender());
+      currentItem->setOpacity(0.3);
+}
+void MainWindow::itemAyaLived()
+{
+      Button *currentItem= qobject_cast<Button *>(sender());
+       currentItem->setOpacity(0.01);
+}
+
+void MainWindow::on_actionDlg_triggered(bool checked)
+{
+    if(checked==false){
+        desableHifdhPage();
+        return;
+    }
+
+    itemSelection->setVisible(false);
+    panelPopup->setVisible(false);
+   // emit popupVisible(false);
+
+    for (int i = 0; i <buttons.count(); ++i) {
+        m_scene->removeItem(buttons.at(i));
+        delete buttons.at(i);
+    }
+    buttons.clear();
+    //رسم ازرار على الايات
+    QString lineLeft=database->myListSafhat->at(m_curentSafhaLeft);
+    QString lineRight=database->myListSafhat->at(m_curentSafhaRight);
+
+    int countRight=lineRight.count("|");
+    int countLeft=lineLeft.count("|");
+
+    QPixmap mypix(28,28);
+    mypix.fill(Qt::transparent);
+//     updatePixSelect(hight,x1,x2);
+
+ //   int height=0;
+
+    //   int height=0;
+       //--------------ازرار الصفحة اليمنى
+    int xold=430;
+    int yold=60;
+    int itemIndex=-1;
+    for (int r=0;r <countRight+1 ;r++){
+        itemIndex=r;
+           QString txt=lineRight.section("|",r,r).trimmed();
+
+           int mx =txt.section(",",1,1).trimmed().toInt();
+           int my =txt.section(",",2,2).trimmed().toInt();
+          int height=my-yold;
+          Button *item = new Button(QPixmap());
+         buttons << item;
+            QPixmap pix(updatePixSelect(height+40,mx+12,xold-8,2,itemIndex));
+ //type  0=button 1=selection 2=mask
+            item->setPixmap(pix);
+           m_scene->addItem(item);
+          item->setGeometry(QRectF((m_pWith+42),yold-20,pix.width(),pix.height()));
+           item->setCursor(Qt::PointingHandCursor);
+
+
+           xold=mx-4;
+           yold=my;
+           connect(item, SIGNAL(release()), this, SLOT(itemHifdhCliked()));
+     connect(item, SIGNAL(enter()), this, SLOT(itemHifdhEntered()));
+       connect(item, SIGNAL(leave()), this, SLOT(itemHifdhLived()));
+       }
+    //-------------ازرار الصفحة اليسرى
+     xold=430;
+     yold=60;
+    for (int r=0;r <countLeft+1 ;r++){
+        itemIndex++;
+        QString txt=lineLeft.section("|",r,r).trimmed();
+
+        int mx =txt.section(",",1,1).trimmed().toInt();
+        int my =txt.section(",",2,2).trimmed().toInt();
+       int height=my-yold;
+       Button *item = new Button(QPixmap());
+      buttons << item;
+         QPixmap pix(updatePixSelect(height+40,mx+12,xold-6,2,itemIndex));
+          //type  0=button 1=selection 2=mask
+item->setPixmap(pix);
+
+        m_scene->addItem(item);
+
+       item->setGeometry(QRectF((40),yold-20,pix.width(),pix.height()));
+        item->setCursor(Qt::PointingHandCursor);
+
+
+        xold=mx-4;
+        yold=my;
+  connect(item, SIGNAL(pressed()), this, SLOT(itemHifdhCliked()));
+  connect(item, SIGNAL(enter()), this, SLOT(itemHifdhEntered()));
+  connect(item, SIGNAL(leave()), this, SLOT(itemHifdhLived()));
+    }
+}
+void MainWindow::desableHifdhPage()
+{
+    ui->actionDlg->setChecked(false);
+   newPages();
+
+}
